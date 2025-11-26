@@ -37,6 +37,24 @@
       border-radius: 8px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
+    .component-card:hover {
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    /* Force default cursor on captured content (but not links) */
+    .component-content {
+      cursor: default;
+    }
+    .component-content div,
+    .component-content span,
+    .component-content p,
+    .component-content img,
+    .component-content button {
+      cursor: default !important;
+    }
+    /* Only show pointer on actual links */
+    .component-content a.canvas-link {
+      cursor: pointer !important;
+    }
     .empty-state {
       text-align: center;
       padding: 60px 20px;
@@ -46,8 +64,15 @@
 </head>
 <body>
   <div class="header">
-    <h1>📋 ComponentCanvas</h1>
-    <p>Your captured components will appear here</p>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h1>📋 ComponentCanvas</h1>
+        <p>Your captured components will appear here</p>
+      </div>
+      <button id="refresh-all-btn" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: 500;">
+        🔄 Refresh All
+      </button>
+    </div>
   </div>
   
   <div id="components-container">

@@ -1,3 +1,55 @@
+// Fix relative URLs to absolute based on component origin
+function fixRelativeUrls(container, sourceUrl) {
+  try {
+    const url = new URL(sourceUrl);
+    const origin = url.origin; // e.g., "https://www.bbc.co.uk"
+    
+    // Fix all anchor tags
+    container.querySelectorAll('a[href]').forEach(link => {
+      const href = link.getAttribute('href');
+      
+      if (href.startsWith('/')) {
+        // Absolute path: /deals/123 → https://hotukdeals.com/deals/123
+        link.href = origin + href;
+      } else if (href.startsWith('./') || href.startsWith('../')) {
+        // Relative path: ./deals/123 → resolve relative to source path
+        const basePath = url.pathname.substring(0, url.pathname.lastIndexOf('/'));
+        link.href = origin + basePath + '/' + href.replace(/^\.\//, '');
+      }
+      // If already absolute (https://) or hash (#), leave as-is
+      
+      // Ensure links open in new tab
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+    });
+  } catch (err) {
+    console.error('Failed to fix URLs for:', sourceUrl, err);
+  }
+}
+
+// Remove all cursor styles from captured HTML, then mark links
+function removeCursorStyles(container) {
+  // Get all elements including the container itself
+  const allElements = [container, ...container.querySelectorAll('*')];
+  
+  allElements.forEach(el => {
+    // Remove any inline cursor style
+    if (el.style.cursor) {
+      el.style.cursor = '';
+    }
+    
+    // If style attribute is now empty, remove it
+    if (el.style.length === 0 && el.hasAttribute('style')) {
+      el.removeAttribute('style');
+    }
+  });
+  
+  // Add a class to all links so CSS can target them
+  container.querySelectorAll('a[href]').forEach(link => {
+    link.classList.add('canvas-link');
+  });
+}
+
 // Load and display components from storage
 chrome.storage.local.get(['components'], (result) => {
   const container = document.getElementById('components-container');
@@ -18,12 +70,286 @@ chrome.storage.local.get(['components'], (result) => {
     const card = document.createElement('div');
     card.className = 'component-card';
     card.innerHTML = `
-      <h3>${component.name || 'Unnamed Component'}</h3>
+      <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+        <h3 style="margin: 0;">${component.name || 'Unnamed Component'}</h3>
+        <button class="delete-btn" style="padding: 6px 12px; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
+      </div>
       <small>${component.url || 'No URL'}</small>
-      <div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; max-height: 300px; overflow: auto;">
+      <div class="component-content" style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; max-height: 300px; overflow: auto;">
         ${component.html_cache || 'No HTML captured'}
       </div>
     `;
+    
+    // ✨ FIX RELATIVE URLs TO ABSOLUTE
+    const contentDiv = card.querySelector('.component-content');
+    if (contentDiv && component.url) {
+      fixRelativeUrls(contentDiv, component.url);
+      // ✨ FORCE REMOVE ALL CURSOR STYLES
+      removeCursorStyles(contentDiv);
+    }
+    
+    // ✨ ADD DELETE FUNCTIONALITY
+    const deleteBtn = card.querySelector('.delete-btn');
+    deleteBtn.addEventListener('click', () => {
+      if (confirm(`Delete "${component.name}"? This cannot be undone.`)) {
+        // Remove this component from the array
+        const updated = components.filter((c, i) => i !== index);
+        // Save back to storage
+        chrome.storage.local.set({ components: updated }, () => {
+          // Remove card from DOM
+          card.remove();
+          // Show empty state if no components left
+          if (updated.length === 0) {
+            container.innerHTML = `
+              <div class="empty-state">
+                <h2>No components yet</h2>
+                <p>Use the extension popup to capture components from any website</p>
+              </div>
+            `;
+          }
+        });
+      }
+    });
+    
     grid.appendChild(card);
   });
+});
+
+// ==========================================
+// REFRESH FUNCTIONALITY
+// ==========================================
+
+async function refreshComponent(component) {
+  try {
+    console.log(`🔄 Refreshing: ${component.name} from ${component.url}`);
+    
+    // Fetch fresh HTML from the source URL
+    const response = await fetch(component.url);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const fullHtml = await response.text();
+    
+    // Try to extract the component using the selector
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(fullHtml, 'text/html');
+    
+    let extractedHtml = null;
+    
+    // Only try to extract if we have a specific selector
+    // Generic selectors like "div" or "section" will match wrong elements
+    if (component.selector && !['div', 'section', 'article', 'main', 'aside', 'header', 'footer', 'nav'].includes(component.selector.toLowerCase())) {
+      const element = doc.querySelector(component.selector);
+      if (element) {
+        extractedHtml = element.outerHTML;
+        
+        // Check if we got a skeleton/loading placeholder instead of real content
+        const isSkeletonContent = extractedHtml.includes('class="skeleton') || 
+                                   extractedHtml.includes('skeleton-color') ||
+                                   extractedHtml.includes('loading-placeholder') ||
+                                   (extractedHtml.match(/skeleton/gi) || []).length > 2;
+        
+        if (isSkeletonContent) {
+          console.warn(`⚠️ Detected skeleton/loading content - keeping original`);
+          return {
+            success: false,
+            error: 'Page returned skeleton content (JS not loaded)',
+            keepOriginal: true
+          };
+        }
+        
+        console.log(`✅ Successfully extracted component using selector: ${component.selector}`);
+      } else {
+        console.warn(`⚠️ Selector "${component.selector}" not found on page`);
+      }
+    } else {
+      console.warn(`⚠️ Generic selector "${component.selector}" - skipping extraction to avoid wrong content`);
+    }
+    
+    // If extraction failed, DON'T use the full page - keep original HTML
+    if (!extractedHtml) {
+      return {
+        success: false,
+        error: 'Cannot extract component - selector too generic or not found',
+        keepOriginal: true
+      };
+    }
+    
+    return {
+      success: true,
+      html_cache: extractedHtml,
+      last_refresh: new Date().toISOString(),
+      status: 'active'
+    };
+    
+  } catch (error) {
+    console.error(`❌ Failed to refresh ${component.name}:`, error);
+    return {
+      success: false,
+      error: error.message,
+      status: 'error'
+    };
+  }
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('refresh-all-btn');
+  
+  // Show loading state
+  btn.disabled = true;
+  btn.textContent = '⏳ Refreshing...';
+  btn.style.background = '#6c757d';
+  
+  try {
+    // Get current components
+    const result = await new Promise(resolve => {
+      chrome.storage.local.get(['components'], resolve);
+    });
+    
+    const components = result.components || [];
+    
+    if (components.length === 0) {
+      btn.textContent = '✅ No components to refresh';
+      setTimeout(() => {
+        btn.textContent = '🔄 Refresh All';
+        btn.style.background = '#007bff';
+        btn.disabled = false;
+      }, 2000);
+      return;
+    }
+    
+    console.log(`🔄 Starting refresh of ${components.length} components...`);
+    
+    // Refresh all components
+    const refreshPromises = components.map(comp => refreshComponent(comp));
+    const results = await Promise.all(refreshPromises);
+    
+    // Update components with new data
+    const updatedComponents = components.map((comp, index) => {
+      const result = results[index];
+      if (result.success) {
+        // Successfully refreshed - update HTML
+        return {
+          ...comp,
+          html_cache: result.html_cache,
+          last_refresh: result.last_refresh,
+          status: result.status
+        };
+      } else if (result.keepOriginal) {
+        // Failed to extract but keep original HTML (don't mark as error)
+        console.log(`⚠️ Keeping original HTML for: ${comp.name}`);
+        return {
+          ...comp,
+          last_refresh: new Date().toISOString(),
+          status: 'active' // Still active, just couldn't refresh
+        };
+      } else {
+        // Real error (CORS, network, etc)
+        return {
+          ...comp,
+          status: 'error',
+          last_refresh: new Date().toISOString()
+        };
+      }
+    });
+    
+    // Count results
+    const successCount = results.filter(r => r.success).length;
+    const keptOriginalCount = results.filter(r => r.keepOriginal).length;
+    const failCount = results.filter(r => !r.success && !r.keepOriginal).length;
+    
+    // Save updated components
+    await new Promise(resolve => {
+      chrome.storage.local.set({ components: updatedComponents }, resolve);
+    });
+    
+    console.log(`✅ Refresh complete: ${successCount} refreshed, ${keptOriginalCount} kept original, ${failCount} failed`);
+    
+    // Build detailed summary for popup
+    let summary = `📊 Refresh Summary:\n\n`;
+    summary += `✅ Successfully refreshed: ${successCount}\n`;
+    summary += `⚠️ Kept original (generic selector): ${keptOriginalCount}\n`;
+    summary += `❌ Failed (CORS/Network): ${failCount}\n\n`;
+    
+    // Add details for each component
+    summary += `Details:\n`;
+    components.forEach((comp, index) => {
+      const result = results[index];
+      if (result.success) {
+        summary += `✅ ${comp.name}\n`;
+      } else if (result.keepOriginal) {
+        summary += `⚠️ ${comp.name} - kept original\n`;
+      } else {
+        summary += `❌ ${comp.name} - ${result.error}\n`;
+      }
+    });
+    
+    // Build table data for console
+    const tableData = components.map((comp, index) => {
+      const result = results[index];
+      return {
+        Component: comp.name,
+        Status: result.success ? '✅ Refreshed' : result.keepOriginal ? '⚠️ Kept Original' : '❌ Failed',
+        Reason: result.success ? 'Success' : result.error || 'Generic selector'
+      };
+    });
+    
+    // Log to console with table (persists longer)
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
+    console.log('%c📊 REFRESH COMPLETE', 'color: blue; font-size: 16px; font-weight: bold');
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
+    console.table(tableData);
+    console.log(`✅ Successfully refreshed: ${successCount}`);
+    console.log(`⚠️ Kept original: ${keptOriginalCount}`);
+    console.log(`❌ Failed: ${failCount}`);
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
+    
+    // Show success state with more detail
+    if (successCount === results.length) {
+      btn.textContent = `✅ All refreshed (${successCount})`;
+      btn.style.background = '#28a745';
+    } else if (successCount > 0) {
+      btn.textContent = `⚠️ ${successCount} refreshed, ${keptOriginalCount + failCount} kept`;
+      btn.style.background = '#ffc107';
+    } else {
+      btn.textContent = `⚠️ All kept original`;
+      btn.style.background = '#ffc107';
+    }
+    
+    // Use confirm() instead of alert - requires user interaction before proceeding
+    const shouldReload = confirm(summary + '\n\nReload page to see updates?');
+    
+    if (shouldReload) {
+      location.reload();
+    } else {
+      // Reset button if user cancels
+      setTimeout(() => {
+        btn.textContent = '🔄 Refresh All';
+        btn.style.background = '#007bff';
+        btn.disabled = false;
+      }, 2000);
+    }
+    
+  } catch (error) {
+    console.error('❌ Refresh failed:', error);
+    btn.textContent = '❌ Refresh failed';
+    btn.style.background = '#dc3545';
+    
+    // Reset after 2 seconds
+    setTimeout(() => {
+      btn.textContent = '🔄 Refresh All';
+      btn.style.background = '#007bff';
+      btn.disabled = false;
+    }, 2000);
+  }
+}
+
+// Attach refresh handler when page loads
+document.addEventListener('DOMContentLoaded', () => {
+  const refreshBtn = document.getElementById('refresh-all-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', refreshAll);
+  }
 });
