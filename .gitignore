@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Test profiles (Playwright/Chrome test artifacts)
+.test-profile/
+.test-profile-comprehensive/
+.test-profile-extension/
+
+# Test files
+*.mjs
+test-*.js
