@@ -69,12 +69,56 @@ chrome.storage.local.get(['components'], (result) => {
   components.forEach((component, index) => {
     const card = document.createElement('div');
     card.className = 'component-card';
+    // Format timestamp with both absolute and relative time
+    let timestampText = 'Never refreshed';
+    if (component.last_refresh) {
+      const lastUpdate = new Date(component.last_refresh);
+      const now = new Date();
+      const diffMs = now - lastUpdate;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      // Format absolute time: "27 Nov 2025, 21:30"
+      const day = lastUpdate.getDate();
+      const month = lastUpdate.toLocaleString('en-GB', { month: 'short' });
+      const year = lastUpdate.getFullYear();
+      const hours = lastUpdate.getHours().toString().padStart(2, '0');
+      const minutes = lastUpdate.getMinutes().toString().padStart(2, '0');
+      const absoluteTime = `${day} ${month} ${year}, ${hours}:${minutes}`;
+      
+      // Format relative time
+      let relativeTime = '';
+      if (diffMins < 1) {
+        relativeTime = 'just now';
+      } else if (diffMins === 1) {
+        relativeTime = '1 minute ago';
+      } else if (diffMins < 60) {
+        relativeTime = `${diffMins} minutes ago`;
+      } else if (diffHours === 1) {
+        relativeTime = '1 hour ago';
+      } else if (diffHours < 24) {
+        relativeTime = `${diffHours} hours ago`;
+      } else if (diffDays === 1) {
+        relativeTime = '1 day ago';
+      } else if (diffDays < 7) {
+        relativeTime = `${diffDays} days ago`;
+      } else {
+        relativeTime = 'over a week ago';
+      }
+      
+      timestampText = `${absoluteTime} (${relativeTime})`;
+    }
+    
     card.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-        <h3 style="margin: 0;">${component.name || 'Unnamed Component'}</h3>
+        <h3 class="editable-title" style="margin: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;" title="Click to edit">${component.customLabel || component.name || 'Unnamed Component'}</h3>
         <button class="delete-btn" style="padding: 6px 12px; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
       </div>
       <small>${component.url || 'No URL'}</small>
+      <div style="font-size: 11px; color: #666; margin-top: 4px;">
+        Last updated: ${timestampText}
+      </div>
       <div class="component-content" style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; max-height: 300px; overflow: auto;">
         ${component.html_cache || 'No HTML captured'}
       </div>
@@ -91,7 +135,7 @@ chrome.storage.local.get(['components'], (result) => {
     // ✨ ADD DELETE FUNCTIONALITY
     const deleteBtn = card.querySelector('.delete-btn');
     deleteBtn.addEventListener('click', () => {
-      if (confirm(`Delete "${component.name}"? This cannot be undone.`)) {
+      if (confirm(`Delete "${component.customLabel || component.name}"? This cannot be undone.`)) {
         // Remove this component from the array
         const updated = components.filter((c, i) => i !== index);
         // Save back to storage
@@ -109,6 +153,61 @@ chrome.storage.local.get(['components'], (result) => {
           }
         });
       }
+    });
+    
+    // ✨ ADD EDITABLE TITLE FUNCTIONALITY
+    const titleElement = card.querySelector('.editable-title');
+    titleElement.addEventListener('click', () => {
+      // Highlight on hover to show it's editable
+      titleElement.style.background = '#f0f0f0';
+      
+      const currentLabel = component.customLabel || component.name || 'Unnamed Component';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentLabel;
+      input.style.cssText = 'width: 100%; font-size: inherit; font-weight: inherit; padding: 2px 4px; border: 2px solid #007bff; border-radius: 4px;';
+      
+      // Replace title with input
+      titleElement.replaceWith(input);
+      input.focus();
+      input.select();
+      
+      const saveLabel = () => {
+        const newLabel = input.value.trim();
+        
+        // Restore title element
+        input.replaceWith(titleElement);
+        titleElement.style.background = '';
+        
+        if (newLabel && newLabel !== currentLabel) {
+          // Update component in array
+          component.customLabel = newLabel;
+          titleElement.textContent = newLabel;
+          
+          // Save to storage
+          chrome.storage.local.set({ components }, () => {
+            console.log(`✅ Updated label for "${component.name}" to "${newLabel}"`);
+          });
+        }
+      };
+      
+      // Save on Enter key
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          saveLabel();
+        }
+      });
+      
+      // Save on blur (click away)
+      input.addEventListener('blur', saveLabel);
+    });
+    
+    // Add hover effect to show it's clickable
+    titleElement.addEventListener('mouseenter', () => {
+      titleElement.style.background = '#f0f0f0';
+    });
+    titleElement.addEventListener('mouseleave', () => {
+      titleElement.style.background = '';
     });
     
     grid.appendChild(card);
@@ -132,17 +231,13 @@ function extractFingerprint(html) {
   // Look for headings first (h1-h6)
   const heading = doc.querySelector('h1, h2, h3, h4, h5, h6');
   if (heading && heading.textContent.trim()) {
-    const text = heading.textContent.trim().substring(0, 50);
-    console.log(`🔍 Fingerprint (heading): "${text}"`);
-    return text;
+    return heading.textContent.trim().substring(0, 50);
   }
   
   // Fall back to first strong/bold text
   const strong = doc.querySelector('strong, b');
   if (strong && strong.textContent.trim()) {
-    const text = strong.textContent.trim().substring(0, 50);
-    console.log(`🔍 Fingerprint (strong): "${text}"`);
-    return text;
+    return strong.textContent.trim().substring(0, 50);
   }
   
   // Last resort: first text content over 10 chars
@@ -150,12 +245,10 @@ function extractFingerprint(html) {
   while (walker.nextNode()) {
     const text = walker.currentNode.textContent.trim();
     if (text.length > 10) {
-      console.log(`🔍 Fingerprint (text): "${text.substring(0, 50)}"`);
       return text.substring(0, 50);
     }
   }
   
-  console.log(`⚠️ No fingerprint found`);
   return null;
 }
 
@@ -164,8 +257,6 @@ function extractFingerprint(html) {
  * Opens a background tab, waits for JS to load, extracts content
  */
 async function tabBasedRefresh(url, selector) {
-  console.log(`🌐 Trying tab-based refresh for: ${url}`);
-  
   try {
     // Open background tab (not active)
     const tab = await chrome.tabs.create({ url, active: false });
@@ -189,11 +280,9 @@ async function tabBasedRefresh(url, selector) {
     const html = results[0]?.result;
     
     if (html) {
-      console.log(`✅ Tab-based refresh successful!`);
       return html;
     }
     
-    console.warn(`⚠️ Tab-based refresh: selector not found`);
     return null;
     
   } catch (error) {
@@ -204,7 +293,6 @@ async function tabBasedRefresh(url, selector) {
 
 async function refreshComponent(component) {
   try {
-    console.log(`🔄 Refreshing: ${component.name} from ${component.url}`);
     
     // Fetch fresh HTML from the source URL
     const response = await fetch(component.url);
@@ -235,7 +323,6 @@ async function refreshComponent(component) {
                                    (extractedHtml.match(/skeleton/gi) || []).length > 2;
         
         if (isSkeletonContent) {
-          console.warn(`⚠️ Detected skeleton/loading content - trying tab-based refresh...`);
           
           // Try tab-based refresh as fallback
           const tabHtml = await tabBasedRefresh(component.url, component.selector);
@@ -245,7 +332,6 @@ async function refreshComponent(component) {
             const originalFingerprint = extractFingerprint(component.html_cache);
             
             if (originalFingerprint && !tabHtml.toLowerCase().includes(originalFingerprint.toLowerCase())) {
-              console.warn(`⚠️ Tab refresh returned wrong element (missing "${originalFingerprint}") - keeping original`);
               return {
                 success: false,
                 error: 'Tab refresh returned different element',
@@ -254,7 +340,6 @@ async function refreshComponent(component) {
             }
             
             // Tab refresh worked and verified!
-            console.log(`✅ Tab refresh verified - fingerprint "${originalFingerprint}" found`);
             return {
               success: true,
               html_cache: tabHtml,
@@ -264,18 +349,14 @@ async function refreshComponent(component) {
           }
           
           // Tab refresh also failed - keep original
-          console.warn(`⚠️ Tab-based refresh also returned skeleton - keeping original`);
           return {
             success: false,
             error: 'Page returned skeleton content (JS not loaded)',
             keepOriginal: true
           };
         }
-        
-        console.log(`✅ Successfully extracted component using selector: ${component.selector}`);
       } else {
         // Selector not found in fetched HTML - might need JS to run
-        console.warn(`⚠️ Selector "${component.selector}" not found in fetched HTML - trying tab-based refresh...`);
         
         const tabHtml = await tabBasedRefresh(component.url, component.selector);
         
@@ -284,15 +365,12 @@ async function refreshComponent(component) {
           const originalFingerprint = extractFingerprint(component.html_cache);
           
           if (originalFingerprint && !tabHtml.toLowerCase().includes(originalFingerprint.toLowerCase())) {
-            console.warn(`⚠️ Tab refresh returned wrong element (missing "${originalFingerprint}") - keeping original`);
             return {
               success: false,
               error: 'Tab refresh returned different element',
               keepOriginal: true
             };
           }
-          
-          console.log(`✅ Tab refresh successful and verified!`);
           return {
             success: true,
             html_cache: tabHtml,
@@ -300,11 +378,9 @@ async function refreshComponent(component) {
             status: 'active'
           };
         }
-        
-        console.warn(`⚠️ Tab-based refresh also failed to find selector`);
       }
     } else {
-      console.warn(`⚠️ Generic selector "${component.selector}" - skipping extraction to avoid wrong content`);
+      // Generic selector - skip extraction
     }
     
     // If extraction failed, DON'T use the full page - keep original HTML
@@ -359,8 +435,6 @@ async function refreshAll() {
       return;
     }
     
-    console.log(`🔄 Starting refresh of ${components.length} components...`);
-    
     // Refresh all components
     const refreshPromises = components.map(comp => refreshComponent(comp));
     const results = await Promise.all(refreshPromises);
@@ -369,7 +443,7 @@ async function refreshAll() {
     const updatedComponents = components.map((comp, index) => {
       const result = results[index];
       if (result.success) {
-        // Successfully refreshed - update HTML
+        // Successfully refreshed - update HTML AND timestamp
         return {
           ...comp,
           html_cache: result.html_cache,
@@ -377,19 +451,18 @@ async function refreshAll() {
           status: result.status
         };
       } else if (result.keepOriginal) {
-        // Failed to extract but keep original HTML (don't mark as error)
-        console.log(`⚠️ Keeping original HTML for: ${comp.name}`);
+        // Failed to extract but keep original HTML - DON'T update timestamp
         return {
           ...comp,
-          last_refresh: new Date().toISOString(),
+          // Keep original last_refresh timestamp
           status: 'active' // Still active, just couldn't refresh
         };
       } else {
-        // Real error (CORS, network, etc)
+        // Real error (CORS, network, etc) - DON'T update timestamp
         return {
           ...comp,
-          status: 'error',
-          last_refresh: new Date().toISOString()
+          status: 'error'
+          // Keep original last_refresh timestamp
         };
       }
     });
@@ -403,8 +476,6 @@ async function refreshAll() {
     await new Promise(resolve => {
       chrome.storage.local.set({ components: updatedComponents }, resolve);
     });
-    
-    console.log(`✅ Refresh complete: ${successCount} refreshed, ${keptOriginalCount} kept original, ${failCount} failed`);
     
     // Build detailed summary for popup
     let summary = `📊 Refresh Summary:\n\n`;
@@ -435,15 +506,9 @@ async function refreshAll() {
       };
     });
     
-    // Log to console with table (persists longer)
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
-    console.log('%c📊 REFRESH COMPLETE', 'color: blue; font-size: 16px; font-weight: bold');
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
+    // Log summary to console
+    console.log('📊 Refresh Summary:');
     console.table(tableData);
-    console.log(`✅ Successfully refreshed: ${successCount}`);
-    console.log(`⚠️ Kept original: ${keptOriginalCount}`);
-    console.log(`❌ Failed: ${failCount}`);
-    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: blue; font-weight: bold');
     
     // Show success state with more detail
     if (successCount === results.length) {

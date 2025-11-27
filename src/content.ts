@@ -248,7 +248,7 @@ function handleClick(event: MouseEvent) {
     selector: selector,
     name: name,
     html_cache: cleanedHTML,
-    last_updated: new Date().toISOString()
+    last_refresh: new Date().toISOString()
   };
 
   // Save

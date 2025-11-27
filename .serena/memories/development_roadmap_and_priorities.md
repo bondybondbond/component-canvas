@@ -16,46 +16,13 @@
 
 ## 🎯 PRIORITY FEATURES (High Impact)
 
-### P1: Step 3 - Click component → Opens source URL
-- **Why first:** Makes canvas actually useful for navigation
-- **Effort:** 5 mins
-- **Value:** High - core functionality
-
-### P2: Filter popup to show only CURRENT PAGE components
-- **Why:** Prevents accidental deletes, cleaner UX
-- **Effort:** 15 mins
-- **Value:** High - major UX improvement
-- **New feature** (not in original PRD)
-
-### P3: Delete from canvas (with confirmation)
-- **Why:** Main delete location, safer workflow
-- **Effort:** 10 mins
-- **Value:** High - better UX than popup-only delete
-
-### P4: Step 7 - Manual refresh button
-- **Why:** The "live data" feature from use case
-- **Effort:** 20 mins (needs Step 4 CSS selector work)
-- **Value:** High - core differentiator
+**All high-impact features are now DONE!**
 
 ---
 
 ## 🔧 SUPPORTING FEATURES (Medium Impact)
 
-### P5: Step 4 - Better CSS selectors
-- **Why:** Required for refresh to work reliably
-- **Effort:** 15 mins
-- **Value:** Medium - enables refresh
-- **Blocker for:** Step 7
-
-### P6: Step 6 - Show timestamps
-- **Why:** Shows when data was last fetched
-- **Effort:** 5 mins
-- **Value:** Medium - status awareness
-
-### P7: Step 5 - Name/Notes modal
-- **Why:** User-friendly labeling
-- **Effort:** 20 mins
-- **Value:** Medium - nice to have
+**All medium-impact features are now DONE!**
 
 ---
 
@@ -92,20 +59,15 @@
 
 ---
 
-## 💡 RECOMMENDED NEXT 3 SESSIONS
+## 💡 WHAT'S LEFT
 
-### Session 1 (Current - 15 mins):
-1. **Step 3:** Clickable URLs (5 mins)
-2. **Filter popup to current page** (10 mins)
+Only **Polish Features** remain (P8-P11):
+- P8: Preserve original styling (30 mins, risky)
+- P9: Add favicons (10 mins)
+- P10: Grid layout improvements (15 mins)
+- P11: Drag to rearrange (60 mins, complex)
 
-### Session 2 (Next):
-3. **Delete from canvas with confirmation** (10 mins)
-4. **Manual refresh button** (20 mins)
-
-### Session 3 (Polish):
-5. **Timestamps** (5 mins)
-6. **Favicons** (10 mins)
-7. **Name/Notes modal** (20 mins)
+**Recommendation:** MVP is essentially complete! All core + supporting features done. Polish features are optional nice-to-haves.
 
 ---
 
@@ -114,3 +76,10 @@
 - Step 0: "Open Canvas" button → opens full tab
 - Step 1: Capture actual HTML
 - Step 2: Delete works (from popup)
+- Step 3: Click component → Opens source URL
+- Step 4: Filter popup to show only CURRENT PAGE components
+- Step 5: Delete from canvas (with confirmation)
+- Step 6: Manual refresh button (hybrid fetch + tab-based)
+- Step 7: Better CSS selectors (unique selector generation)
+- Step 8: Show timestamps (absolute + relative time)
+- Step 9: **Name/Notes modal → Editable labels** (Click-to-edit titles)
