@@ -60,6 +60,167 @@
       padding: 60px 20px;
       color: #666;
     }
+    
+    /* Refresh Toast Notification */
+    .refresh-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      border-radius: 12px;
+      padding: 16px 20px;
+      z-index: 10000;
+      animation: slideInCool 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      max-width: 380px;
+    }
+    
+    /* Cool Dark Toast */
+    .refresh-toast--cooldark {
+      background: linear-gradient(135deg, 
+        rgba(25, 35, 55, 0.95) 0%, 
+        rgba(35, 45, 65, 0.95) 100%);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(100, 120, 160, 0.3);
+      box-shadow: 
+        0 8px 32px rgba(0, 20, 60, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+      color: #e0e8f0;
+    }
+    .refresh-toast--cooldark .refresh-toast__title {
+      color: #f0f8ff;
+      font-weight: 600;
+    }
+    .refresh-toast--cooldark .refresh-toast__subtitle {
+      color: rgba(224, 232, 240, 0.8);
+      font-size: 13px;
+    }
+    .refresh-toast--cooldark .refresh-toast__icon {
+      color: #60a5fa;
+      animation: spin 1s linear infinite;
+    }
+    .refresh-toast--cooldark .refresh-toast__close {
+      color: rgba(224, 232, 240, 0.7);
+    }
+    .refresh-toast--cooldark .refresh-toast__close:hover {
+      color: #f0f8ff;
+    }
+    
+    /* Success Toast - Warm green */
+    .refresh-toast--success {
+      background: linear-gradient(135deg, 
+        rgba(34, 197, 94, 0.95) 0%, 
+        rgba(22, 163, 74, 0.95) 100%);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      box-shadow: 
+        0 8px 32px rgba(34, 197, 94, 0.3),
+        0 0 0 1px rgba(34, 197, 94, 0.2);
+      color: white;
+    }
+    .refresh-toast--success .refresh-toast__icon {
+      color: white;
+      animation: none;
+    }
+    .refresh-toast--success .refresh-toast__title {
+      color: white;
+      font-weight: 600;
+    }
+    
+    /* Animations */
+    @keyframes slideInCool {
+      from { transform: translateX(400px) scale(0.95); opacity: 0; }
+      to { transform: translateX(0) scale(1); opacity: 1; }
+    }
+    @keyframes slideOutCool {
+      from { transform: translateX(0) scale(1); opacity: 1; }
+      to { transform: translateX(400px) scale(0.95); opacity: 0; }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .refresh-toast--hiding {
+      animation: slideOutCool 0.4s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+    }
+    
+    .refresh-toast__content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .refresh-toast__icon {
+      flex-shrink: 0;
+    }
+    .refresh-toast__text {
+      flex: 1;
+      min-width: 0;
+    }
+    .refresh-toast__title {
+      font-size: 14px;
+    }
+    .refresh-toast__subtitle {
+      margin-top: 4px;
+    }
+    .refresh-toast__close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    
+    /* Toast text sections */
+    .toast-progress {
+      font-size: 12px;
+      opacity: 0.8;
+      margin-bottom: 4px;
+    }
+    .toast-current {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .toast-subtitle {
+      font-size: 13px;
+      opacity: 0.8;
+    }
+    
+    /* Progress bar */
+    .toast-progress-track {
+      margin-top: 10px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .toast-progress-bar {
+      height: 100%;
+      background: #60a5fa;
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .refresh-toast--success .toast-progress-track {
+      display: none;
+    }
+    
+    /* Icon container for alignment */
+    .toast-icon-container {
+      flex-shrink: 0;
+      display: flex;
+      align-items: flex-start;
+      padding-top: 2px;
+    }
+    
+    /* Responsive */
+    @media (max-width: 768px) {
+      .refresh-toast {
+        bottom: 16px;
+        left: 16px;
+        right: 16px;
+        max-width: none;
+      }
+    }
   </style>
 </head>
 <body>

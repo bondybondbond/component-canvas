@@ -55,7 +55,7 @@ chrome.storage.local.get(['components'], (result) => {
   const container = document.getElementById('components-container');
   const components = Array.isArray(result.components) ? result.components : [];
   
-  console.log('📦 Loaded components:', components);
+  
   
   if (components.length === 0) {
     // Empty state already shown by default
@@ -185,9 +185,7 @@ chrome.storage.local.get(['components'], (result) => {
           titleElement.textContent = newLabel;
           
           // Save to storage
-          chrome.storage.local.set({ components }, () => {
-            console.log(`✅ Updated label for "${component.name}" to "${newLabel}"`);
-          });
+          chrome.storage.local.set({ components });
         }
       };
       
@@ -253,40 +251,251 @@ function extractFingerprint(html) {
 }
 
 /**
+ * Toast notification manager for refresh feedback
+ * Single toast with progress summary + current action
+ */
+class RefreshToastManager {
+  constructor() {
+    this.toast = null;
+    this.totalComponents = 0;
+    this.completedCount = 0;
+    this.successCount = 0;
+    this.currentComponent = '';
+  }
+  
+  startRefresh(total) {
+    this.totalComponents = total;
+    this.completedCount = 0;
+    this.successCount = 0;
+    this.createToast();
+  }
+  
+  updateProgress(componentName, needsActiveTab = false) {
+    this.currentComponent = componentName;
+    
+    if (!this.toast) this.createToast();
+    
+    // Update progress section
+    const progressText = this.completedCount > 0 
+      ? `✓ ${this.successCount}/${this.totalComponents} refreshed`
+      : `Refreshing ${this.totalComponents} components...`;
+    
+    this.toast.querySelector('.toast-progress').textContent = progressText;
+    
+    // Update current action section
+    let currentText = `Now loading: ${componentName}`;
+    let subtitleText = 'Refreshing in background...';
+    
+    if (needsActiveTab) {
+      currentText = `📍 Now loading: ${componentName}`;
+      subtitleText = 'Opening site tab briefly — you\'ll return here automatically!';
+    }
+    
+    this.toast.querySelector('.toast-current').textContent = currentText;
+    this.toast.querySelector('.toast-subtitle').textContent = subtitleText;
+    
+    // Update progress bar
+    const progressPercent = (this.completedCount / this.totalComponents) * 100;
+    this.toast.querySelector('.toast-progress-bar').style.width = `${progressPercent}%`;
+  }
+  
+  completeComponent(success = true) {
+    this.completedCount++;
+    if (success) this.successCount++;
+    
+    // Update progress bar
+    if (this.toast) {
+      const progressPercent = (this.completedCount / this.totalComponents) * 100;
+      this.toast.querySelector('.toast-progress-bar').style.width = `${progressPercent}%`;
+      this.toast.querySelector('.toast-progress').textContent = 
+        `✓ ${this.successCount}/${this.totalComponents} refreshed`;
+    }
+  }
+  
+  finishAll() {
+    this.hideToast();
+    this.showSuccessToast();
+  }
+  
+  createToast() {
+    if (this.toast) this.toast.remove();
+    
+    this.toast = document.createElement('div');
+    this.toast.className = 'refresh-toast refresh-toast--cooldark';
+    
+    this.toast.innerHTML = `
+      <div class="refresh-toast__content">
+        <div class="toast-icon-container">
+          <svg class="refresh-toast__icon" viewBox="0 0 24 24" width="24" height="24">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" fill="none"/>
+          </svg>
+        </div>
+        <div class="refresh-toast__text">
+          <div class="toast-progress">Starting refresh...</div>
+          <div class="toast-current">Preparing...</div>
+          <div class="toast-subtitle">Please wait...</div>
+          <div class="toast-progress-track">
+            <div class="toast-progress-bar"></div>
+          </div>
+        </div>
+        <button class="refresh-toast__close" aria-label="Close">×</button>
+      </div>
+    `;
+    
+    document.body.appendChild(this.toast);
+    this.toast.querySelector('.refresh-toast__close').addEventListener('click', () => {
+      this.hideToast();
+    });
+  }
+  
+  hideToast() {
+    if (this.toast) {
+      this.toast.classList.add('refresh-toast--hiding');
+      setTimeout(() => {
+        if (this.toast) {
+          this.toast.remove();
+          this.toast = null;
+        }
+      }, 400);
+    }
+  }
+  
+  showSuccessToast() {
+    const allSuccess = this.successCount === this.totalComponents;
+    const message = allSuccess 
+      ? `All ${this.totalComponents} components refreshed! 👍🏼`
+      : `${this.successCount}/${this.totalComponents} refreshed successfully`;
+    
+    const successToast = document.createElement('div');
+    successToast.className = 'refresh-toast refresh-toast--success';
+    
+    successToast.innerHTML = `
+      <div class="refresh-toast__content">
+        <svg class="refresh-toast__icon" viewBox="0 0 24 24" width="24" height="24">
+          <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="refresh-toast__text">
+          <div class="refresh-toast__title">You're back! ${message}</div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(successToast);
+    
+    setTimeout(() => {
+      successToast.classList.add('refresh-toast--hiding');
+      setTimeout(() => successToast.remove(), 400);
+    }, 3000);
+  }
+}
+
+// Global toast manager instance
+const toastManager = new RefreshToastManager();
+
+// Check if URL will need active tab (known problematic sites)
+function willNeedActiveTab(url) {
+  const problematicDomains = ['hotukdeals.com'];
+  return problematicDomains.some(domain => url.includes(domain));
+}
+
+/**
  * Tab-based refresh for JS-heavy sites
  * Opens a background tab, waits for JS to load, extracts content
  */
 async function tabBasedRefresh(url, selector) {
   try {
-    // Open background tab (not active)
-    const tab = await chrome.tabs.create({ url, active: false });
+    // ATTEMPT 1: Try background tab with visibility spoof
+    const result = await tryBackgroundWithSpoof(url, selector);
+    if (result) return result;
     
-    // Wait for page + JS to load (5 seconds for complex sites like HotUKDeals)
-    await new Promise(r => setTimeout(r, 5000));
+    // ATTEMPT 2: Fallback to active tab (guaranteed to work)
+    const fallbackResult = await tryActiveTab(url, selector);
+    if (fallbackResult) return fallbackResult;
     
-    // Extract the component using scripting API
-    const results = await chrome.scripting.executeScript({
+    return null;
+  } catch (error) {
+    console.error('Tab refresh failed:', error);
+    return null;
+  }
+}
+
+// Try background tab with visibility spoof (seamless, no flash)
+async function tryBackgroundWithSpoof(url, selector) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  
+  try {
+    // CRITICAL: Inject spoof at document_start - BEFORE page scripts run
+    await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      args: [selector],
-      func: (sel) => {
-        const el = document.querySelector(sel);
-        return el ? el.outerHTML : null;
+      world: 'MAIN',
+      injectImmediately: true,  // Inject as early as possible
+      func: () => {
+        // Override BEFORE anything else runs
+        Object.defineProperty(document, 'hidden', {
+          get: () => false,
+          configurable: true
+        });
+        Object.defineProperty(document, 'visibilityState', {
+          get: () => 'visible',
+          configurable: true
+        });
+        // Fire event so listeners think page became visible
+        document.dispatchEvent(new Event('visibilitychange'));
+
       }
     });
     
-    // Close the tab
+    // Wait for JS to fully load (longer for complex sites)
+    await new Promise(r => setTimeout(r, 6000));
+    
+    // Try to extract
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      args: [selector],
+      func: (sel) => document.querySelector(sel)?.outerHTML || null
+    });
+    
     await chrome.tabs.remove(tab.id);
+    return results[0]?.result;
+    
+  } catch (error) {
+    try { await chrome.tabs.remove(tab.id); } catch (e) {}
+    return null;
+  }
+}
+
+// Fallback: Active tab (flashes briefly but guaranteed to work)
+async function tryActiveTab(url, selector) {
+  const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await chrome.tabs.create({ url, active: true });
+  
+  try {
+    // Wait for JS to load
+    await new Promise(r => setTimeout(r, 5000));
+    
+    // Extract
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      args: [selector],
+      func: (sel) => document.querySelector(sel)?.outerHTML || null
+    });
     
     const html = results[0]?.result;
     
-    if (html) {
-      return html;
+    // Close and switch back
+    await chrome.tabs.remove(tab.id);
+    if (currentTab?.id) {
+      await chrome.tabs.update(currentTab.id, { active: true });
     }
     
-    return null;
+    return html;
     
   } catch (error) {
-    console.error(`❌ Tab-based refresh failed:`, error);
+    try { await chrome.tabs.remove(tab.id); } catch (e) {}
+    if (currentTab?.id) {
+      try { await chrome.tabs.update(currentTab.id, { active: true }); } catch (e) {}
+    }
     return null;
   }
 }
@@ -356,8 +565,7 @@ async function refreshComponent(component) {
           };
         }
       } else {
-        // Selector not found in fetched HTML - might need JS to run
-        
+        // Selector not found in fetched HTML - try tab-based refresh
         const tabHtml = await tabBasedRefresh(component.url, component.selector);
         
         if (tabHtml) {
@@ -412,7 +620,7 @@ async function refreshComponent(component) {
 async function refreshAll() {
   const btn = document.getElementById('refresh-all-btn');
   
-  // Show loading state
+  // Show loading state on button
   btn.disabled = true;
   btn.textContent = '⏳ Refreshing...';
   btn.style.background = '#6c757d';
@@ -435,15 +643,31 @@ async function refreshAll() {
       return;
     }
     
-    // Refresh all components
-    const refreshPromises = components.map(comp => refreshComponent(comp));
-    const results = await Promise.all(refreshPromises);
+    // Start toast with total count
+    toastManager.startRefresh(components.length);
+    
+    // Refresh components sequentially for better UX feedback
+    const results = [];
+    for (let i = 0; i < components.length; i++) {
+      const comp = components[i];
+      const displayName = comp.customLabel || comp.name;
+      const needsActiveTab = willNeedActiveTab(comp.url);
+      
+      // Update toast to show current component
+      toastManager.updateProgress(displayName, needsActiveTab);
+      
+      // Do the refresh
+      const refreshResult = await refreshComponent(comp);
+      results.push(refreshResult);
+      
+      // Mark this component as complete
+      toastManager.completeComponent(refreshResult.success);
+    }
     
     // Update components with new data
     const updatedComponents = components.map((comp, index) => {
       const result = results[index];
       if (result.success) {
-        // Successfully refreshed - update HTML AND timestamp
         return {
           ...comp,
           html_cache: result.html_cache,
@@ -451,97 +675,45 @@ async function refreshAll() {
           status: result.status
         };
       } else if (result.keepOriginal) {
-        // Failed to extract but keep original HTML - DON'T update timestamp
         return {
           ...comp,
-          // Keep original last_refresh timestamp
-          status: 'active' // Still active, just couldn't refresh
+          status: 'active'
         };
       } else {
-        // Real error (CORS, network, etc) - DON'T update timestamp
         return {
           ...comp,
           status: 'error'
-          // Keep original last_refresh timestamp
         };
       }
     });
-    
-    // Count results
-    const successCount = results.filter(r => r.success).length;
-    const keptOriginalCount = results.filter(r => r.keepOriginal).length;
-    const failCount = results.filter(r => !r.success && !r.keepOriginal).length;
     
     // Save updated components
     await new Promise(resolve => {
       chrome.storage.local.set({ components: updatedComponents }, resolve);
     });
     
-    // Build detailed summary for popup
-    let summary = `📊 Refresh Summary:\n\n`;
-    summary += `✅ Successfully refreshed: ${successCount}\n`;
-    summary += `⚠️ Kept original (generic selector): ${keptOriginalCount}\n`;
-    summary += `❌ Failed (CORS/Network): ${failCount}\n\n`;
+    // Show success toast
+    toastManager.finishAll();
     
-    // Add details for each component
-    summary += `Details:\n`;
-    components.forEach((comp, index) => {
-      const result = results[index];
-      if (result.success) {
-        summary += `✅ ${comp.name}\n`;
-      } else if (result.keepOriginal) {
-        summary += `⚠️ ${comp.name} - kept original\n`;
-      } else {
-        summary += `❌ ${comp.name} - ${result.error}\n`;
-      }
-    });
+    // Log summary to console (minimal)
+    const successCount = results.filter(r => r.success).length;
+    console.log(`Refresh complete: ${successCount}/${results.length}`);
     
-    // Build table data for console
-    const tableData = components.map((comp, index) => {
-      const result = results[index];
-      return {
-        Component: comp.name,
-        Status: result.success ? '✅ Refreshed' : result.keepOriginal ? '⚠️ Kept Original' : '❌ Failed',
-        Reason: result.success ? 'Success' : result.error || 'Generic selector'
-      };
-    });
+    // Update button
+    btn.textContent = `✅ Done`;
+    btn.style.background = '#28a745';
     
-    // Log summary to console
-    console.log('📊 Refresh Summary:');
-    console.table(tableData);
-    
-    // Show success state with more detail
-    if (successCount === results.length) {
-      btn.textContent = `✅ All refreshed (${successCount})`;
-      btn.style.background = '#28a745';
-    } else if (successCount > 0) {
-      btn.textContent = `⚠️ ${successCount} refreshed, ${keptOriginalCount + failCount} kept`;
-      btn.style.background = '#ffc107';
-    } else {
-      btn.textContent = `⚠️ All kept original`;
-      btn.style.background = '#ffc107';
-    }
-    
-    // Use confirm() instead of alert - requires user interaction before proceeding
-    const shouldReload = confirm(summary + '\n\nReload page to see updates?');
-    
-    if (shouldReload) {
+    // Auto-reload after success toast displays
+    setTimeout(() => {
       location.reload();
-    } else {
-      // Reset button if user cancels
-      setTimeout(() => {
-        btn.textContent = '🔄 Refresh All';
-        btn.style.background = '#007bff';
-        btn.disabled = false;
-      }, 2000);
-    }
+    }, 3500);
     
   } catch (error) {
     console.error('❌ Refresh failed:', error);
+    toastManager.hideToast();
     btn.textContent = '❌ Refresh failed';
     btn.style.background = '#dc3545';
     
-    // Reset after 2 seconds
     setTimeout(() => {
       btn.textContent = '🔄 Refresh All';
       btn.style.background = '#007bff';

@@ -1,27 +1,41 @@
-console.log("🚀 ComponentCanvas: Content Script V5 (RESET) Loaded");
+console.log("🚀 ComponentCanvas: Content Script Loaded");
+
+// Debug mode - set to true for detailed logging
+const DEBUG = false;
+const log = (...args: any[]) => DEBUG && console.log(...args);
 
 let isCapturing = false;
 
 
 // Generate a specific CSS selector for an element
 function generateSelector(element: HTMLElement): string {
+  log('🎯 Starting selector generation for:', element.tagName, element.className);
+  
   // Priority 1: ID (most specific)
   if (element.id) {
+    log('✅ Found ID selector:', `#${element.id}`);
     return `#${element.id}`;
   }
   
   // Build base selector: tag + classes + data attributes
   let baseSelector = buildBaseSelector(element);
+  log('📋 Base selector:', baseSelector);
   
   // Check if selector is unique on the page
   const matches = document.querySelectorAll(baseSelector);
+  log(`🔍 Base selector matches ${matches.length} elements`);
   
   if (matches.length === 1) {
-    console.log('🎯 Generated unique selector:', baseSelector);
+    log('🎯 Generated unique selector:', baseSelector);
     return baseSelector;
   }
   
-  console.log(`⚠️ Selector "${baseSelector}" matches ${matches.length} elements, adding context...`);
+  log(`⚠️ Selector "${baseSelector}" matches ${matches.length} elements, adding context...`);
+  
+  // For very generic selectors, go straight to path-based approach
+  if (baseSelector === element.tagName.toLowerCase() && matches.length > 50) {
+    log('🔤 Element is too generic, skipping to path-based selector...');
+  }
   
   // Not unique - try adding nth-of-type
   const parent = element.parentElement;
@@ -34,9 +48,10 @@ function generateSelector(element: HTMLElement): string {
     if (index > 0) {
       const nthSelector = `${baseSelector}:nth-of-type(${index})`;
       const nthMatches = document.querySelectorAll(nthSelector);
+      log(`🔍 nth-of-type selector matches ${nthMatches.length} elements`);
       
       if (nthMatches.length === 1) {
-        console.log('🎯 Generated unique selector with nth-of-type:', nthSelector);
+        log('🎯 Generated unique selector with nth-of-type:', nthSelector);
         return nthSelector;
       }
     }
@@ -45,13 +60,42 @@ function generateSelector(element: HTMLElement): string {
   // Still not unique - build path from unique ancestor
   const pathSelector = buildPathFromUniqueAncestor(element, baseSelector);
   if (pathSelector) {
-    console.log('🎯 Generated unique selector with ancestor path:', pathSelector);
+    log('🎯 Generated unique selector with ancestor path:', pathSelector);
     return pathSelector;
   }
   
   // Last resort: return base selector (fingerprint will catch mismatches)
-  console.log('⚠️ Could not make selector unique, using:', baseSelector);
+  log('⚠️ Could not make selector unique, using:', baseSelector);
   return baseSelector;
+}
+
+// Helper: Escape special characters in CSS class names (for Tailwind etc.)
+function escapeCSSClass(className: string): string {
+  // Escape special characters that are invalid in CSS selectors
+  // Common in Tailwind: : / [ ] ( ) @ ! # $ % ^ & * + = , . < > ? ~ 
+  return className
+    .replace(/:/g, '\\:')   // xl:mt-0 -> xl\:mt-0
+    .replace(/\//g, '\\/')  // w-3/12 -> w-3\/12
+    .replace(/\[/g, '\\[')  // [&_svg] -> \[&_svg\]
+    .replace(/\]/g, '\\]')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\./g, '\\.')  // Important: escape dots in class names
+    .replace(/#/g, '\\#')
+    .replace(/!/g, '\\!')
+    .replace(/@/g, '\\@')
+    .replace(/\$/g, '\\$')
+    .replace(/%/g, '\\%')
+    .replace(/\^/g, '\\^')
+    .replace(/&/g, '\\&')
+    .replace(/\*/g, '\\*')
+    .replace(/\+/g, '\\+')
+    .replace(/=/g, '\\=')
+    .replace(/,/g, '\\,')
+    .replace(/</g, '\\<')
+    .replace(/>/g, '\\>')
+    .replace(/\?/g, '\\?')
+    .replace(/~/g, '\\~');
 }
 
 // Helper: Build base selector (tag + classes + data attrs)
@@ -62,7 +106,8 @@ function buildBaseSelector(element: HTMLElement): string {
   if (element.classList.length > 0) {
     const classes = Array.from(element.classList)
       .filter(c => !c.includes('hover') && !c.includes('active')) // Skip state classes
-      .slice(0, 3);
+      .slice(0, 3)
+      .map(c => escapeCSSClass(c)); // ✨ ESCAPE SPECIAL CHARACTERS
     if (classes.length > 0) {
       selector += '.' + classes.join('.');
     }
@@ -140,9 +185,6 @@ function handleHover(event: MouseEvent) {
   target.style.setProperty('outline', '5px solid red', 'important');
   target.style.cursor = 'crosshair';
   
-  // Debug
-  console.log("🔍 Hover:", target.tagName);
-  
   event.stopPropagation();
 }
 
@@ -183,10 +225,13 @@ function sanitizeHTML(element: HTMLElement): string {
 function handleClick(event: MouseEvent) {
   if (!isCapturing) return;
   
+  log('🖱️ Click detected on:', event.target);
+  
   event.preventDefault();
   event.stopPropagation();
   
   const target = event.target as HTMLElement;
+  log('🎯 Target element:', target.tagName, target.className);
   
   // Green Flash
   target.style.setProperty('outline', '5px solid #00ff00', 'important');
@@ -199,6 +244,7 @@ function handleClick(event: MouseEvent) {
     const text = target.textContent?.trim();
     if (text) {
       name = text.length > 50 ? text.substring(0, 50) + '...' : text;
+      log('📝 Name from heading:', name);
     }
   }
   
@@ -208,12 +254,12 @@ function handleClick(event: MouseEvent) {
     if (heading?.textContent?.trim()) {
       const text = heading.textContent.trim();
       name = text.length > 50 ? text.substring(0, 50) + '...' : text;
+      log('📝 Name from child heading:', name);
     }
   }
   
   // Strategy 3: Get first meaningful text (skip empty/whitespace-only nodes)
   if (!name) {
-    // Try to get first text node with actual content
     const walker = document.createTreeWalker(
       target,
       NodeFilter.SHOW_TEXT,
@@ -229,18 +275,24 @@ function handleClick(event: MouseEvent) {
     if (firstTextNode?.textContent?.trim()) {
       const text = firstTextNode.textContent.trim();
       name = text.length > 50 ? text.substring(0, 50) + '...' : text;
+      log('📝 Name from first text:', name);
     }
   }
   
   // Strategy 4: Fallback to generic label
   if (!name) {
     name = `Component from ${window.location.hostname}`;
+    log('📝 Name fallback:', name);
   }
   
+  log('🏷️ Final name:', name);
+  
   const selector = generateSelector(target); // Smart selector for refresh
+  log('🎯 Final selector:', selector);
   
   // ✨ SANITIZE HTML BEFORE STORING
   const cleanedHTML = sanitizeHTML(target);
+  log('🧹 HTML sanitized, length:', cleanedHTML.length, 'chars');
   
   const component = {
     id: crypto.randomUUID(),
@@ -250,12 +302,34 @@ function handleClick(event: MouseEvent) {
     html_cache: cleanedHTML,
     last_refresh: new Date().toISOString()
   };
+  
+  log('📦 Component object created:', component.id);
 
   // Save
+  log('💾 Attempting to save to chrome.storage.local...');
   chrome.storage.local.get(['components'], (result) => {
+    const existingCount = (result.components as any[])?.length || 0;
+    log('📥 Storage retrieved, existing components:', existingCount);
+    
+    if (chrome.runtime.lastError) {
+      console.error('❌ Chrome storage error:', chrome.runtime.lastError);
+      alert(`❌ Save failed: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    
     const list = Array.isArray(result.components) ? result.components : [];
     list.push(component);
+    log('📝 Updated list length:', list.length);
+    
     chrome.storage.local.set({ components: list }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Chrome storage set error:', chrome.runtime.lastError);
+        alert(`❌ Save failed: ${chrome.runtime.lastError.message}`);
+        return;
+      }
+      
+      log('✅ Component saved successfully!');
+      
       // Clear green flash
       target.style.outline = '';
       target.style.cursor = '';
@@ -279,13 +353,13 @@ function toggleCapture(forceState?: boolean) {
   isCapturing = forceState !== undefined ? forceState : !isCapturing;
   
   if (isCapturing) {
-    console.log("🟢 Capture Mode: ON");
+    log("🟢 Capture Mode: ON");
     document.addEventListener('mouseover', handleHover, true);
     document.addEventListener('mouseout', handleExit, true);
     document.addEventListener('click', handleClick, true);
     document.addEventListener('keydown', handleKeydown, true);
   } else {
-    console.log("🔴 Capture Mode: OFF");
+    log("🔴 Capture Mode: OFF");
     document.removeEventListener('mouseover', handleHover, true);
     document.removeEventListener('mouseout', handleExit, true);
     document.removeEventListener('click', handleClick, true);
