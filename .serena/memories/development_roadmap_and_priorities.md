@@ -28,26 +28,41 @@
 
 ## ✨ POLISH FEATURES (Lower Priority)
 
-### P8: Preserve original styling
-- **Why:** Components look like source
-- **Effort:** 30 mins (complex CSS isolation)
-- **Value:** Medium - visual appeal
-- **Risk:** May break layouts
+### ✅ P8+P10: UI Polish - Headers & Layout (COMPLETED 30 Nov 2025)
+- Compressed headers, gradient background, editable board name
+- Light blue canvas (#e3f2fd), black card borders
+- Saved ~360px vertical space, fits 2-3 more cards on screen
+
+### ✅ P3: Image Scaling (COMPLETED 30 Nov 2025)
+- **What was done:**
+  - Added CSS constraint: `max-width: 25px; max-height: 25px` for all images
+  - Images now icon-sized (team logos, product thumbnails)
+  - Preserves aspect ratio with `object-fit: contain`
+- **Impact:** Cards maintain uniform height, text becomes primary focus
+- **Decision:** Skipped text truncation - layout already good enough
+- **What was done:**
+  - Compressed top header (60px → 40px) - removed subtitle, inline layout
+  - Compressed card headers (80px → 30px) - single line format
+  - Added gradient header background (purple #667eea → #764ba2)
+  - Added editable board name with persist to storage
+  - Removed globe icons to save space
+  - Added clickable ℹ️ info icon showing full URL + timestamp
+  - Changed canvas background to light blue (#e3f2fd)
+  - Added black borders to component cards (1px solid)
+- **Impact:** Fits 2-3 more components on screen, modern aesthetic
+- **Decision:** Standardized card sizes (not expandable) for scanability
 
 ### P9: Add favicons
 - **Why:** Visual identification of source
 - **Effort:** 10 mins
 - **Value:** Low - nice polish
-
-### P10: Step 8 - Grid layout improvements
-- **Why:** Better visual organization
-- **Effort:** 15 mins
-- **Value:** Low - already decent
+- **Status:** TODO
 
 ### P11: Drag to rearrange
 - **Why:** Canvas customization
 - **Effort:** 60 mins (complex)
 - **Value:** Low - marked "Later" in PRD
+- **Status:** TODO (wait for user testing first)
 
 ---
 

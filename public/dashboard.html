@@ -49,6 +49,14 @@
     .component-content button {
       cursor: default !important;
     }
+    /* Image scaling - prevent oversized images */
+    .component-content img {
+      max-width: 25px;
+      max-height: 25px;
+      object-fit: contain;
+      display: inline-block;
+      vertical-align: middle;
+    }
     /* Only show pointer on actual links */
     .component-content a.canvas-link {
       cursor: pointer !important;
