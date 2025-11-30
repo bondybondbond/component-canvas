@@ -110,16 +110,58 @@ chrome.storage.local.get(['components'], (result) => {
       timestampText = `${absoluteTime} (${relativeTime})`;
     }
     
+    // Extract domain from URL for compact display
+    let displayDomain = 'unknown';
+    try {
+      const urlObj = new URL(component.url);
+      displayDomain = urlObj.hostname.replace('www.', '');
+    } catch (e) {
+      displayDomain = 'unknown';
+    }
+    
+    // Get just the relative time for compact view
+    let relativeTime = 'never';
+    if (component.last_refresh) {
+      const lastUpdate = new Date(component.last_refresh);
+      const now = new Date();
+      const diffMs = now - lastUpdate;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      if (diffMins < 1) {
+        relativeTime = 'just now';
+      } else if (diffMins === 1) {
+        relativeTime = '1m ago';
+      } else if (diffMins < 60) {
+        relativeTime = `${diffMins}m ago`;
+      } else if (diffHours === 1) {
+        relativeTime = '1h ago';
+      } else if (diffHours < 24) {
+        relativeTime = `${diffHours}h ago`;
+      } else if (diffDays === 1) {
+        relativeTime = '1d ago';
+      } else if (diffDays < 7) {
+        relativeTime = `${diffDays}d ago`;
+      } else {
+        relativeTime = '1w+ ago';
+      }
+    }
+    
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-        <h3 class="editable-title" style="margin: 0; cursor: pointer; padding: 2px 4px; border-radius: 4px;" title="Click to edit">${component.customLabel || component.name || 'Unnamed Component'}</h3>
-        <button class="delete-btn" style="padding: 6px 12px; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button>
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; border-radius: 6px 6px 0 0; border-bottom: 1px solid #e9ecef;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #495057; min-width: 0; flex: 1;">
+          <span class="editable-title" style="font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click to edit label">
+            ${component.customLabel || component.name || 'Unnamed'}
+          </span>
+          <span style="color: #6c757d; font-size: 12px; white-space: nowrap;">•</span>
+          <span style="color: #6c757d; font-size: 12px; white-space: nowrap;">⏰ ${relativeTime}</span>
+          <span class="info-icon" style="color: #6c757d; font-size: 14px; cursor: pointer; margin-left: 4px;" 
+                title="Click for details">ℹ️</span>
+        </div>
+        <button class="delete-btn" style="padding: 4px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; margin-left: 8px; flex-shrink: 0;">Delete</button>
       </div>
-      <small>${component.url || 'No URL'}</small>
-      <div style="font-size: 11px; color: #666; margin-top: 4px;">
-        Last updated: ${timestampText}
-      </div>
-      <div class="component-content" style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px; max-height: 300px; overflow: auto;">
+      <div class="component-content" style="margin-top: 0; padding: 12px; background: #ffffff; border-radius: 0 0 6px 6px; max-height: 300px; overflow: auto;">
         ${component.html_cache || 'No HTML captured'}
       </div>
     `;
@@ -207,6 +249,15 @@ chrome.storage.local.get(['components'], (result) => {
     titleElement.addEventListener('mouseleave', () => {
       titleElement.style.background = '';
     });
+    
+    // ✨ ADD INFO ICON CLICK HANDLER
+    const infoIcon = card.querySelector('.info-icon');
+    if (infoIcon) {
+      infoIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alert(`Full URL: ${component.url || 'No URL'}\n\nLast updated: ${timestampText}`);
+      });
+    }
     
     grid.appendChild(card);
   });
@@ -933,3 +984,49 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshBtn.addEventListener('click', refreshAll);
   }
 });
+  
+// Board name editing functionality
+const boardNameElement = document.getElementById('board-name');
+if (boardNameElement) {
+  // Load saved board name
+  chrome.storage.local.get(['boardName'], (result) => {
+    if (result.boardName) {
+      boardNameElement.textContent = result.boardName;
+    }
+  });
+  
+  // Make it editable on click
+  boardNameElement.addEventListener('click', () => {
+    const currentName = boardNameElement.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.style.cssText = 'font-size: inherit; font-weight: inherit; padding: 2px 6px; border: 2px solid #667eea; border-radius: 4px; background: white;';
+    
+    boardNameElement.replaceWith(input);
+    input.focus();
+    input.select();
+    
+    const saveName = () => {
+      const newName = input.value.trim() || 'My Dashboard';
+      input.replaceWith(boardNameElement);
+      boardNameElement.textContent = newName;
+      
+      // Save to storage
+      chrome.storage.local.set({ boardName: newName });
+    };
+    
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') saveName();
+    });
+    input.addEventListener('blur', saveName);
+  });
+  
+  // Hover effect
+  boardNameElement.addEventListener('mouseenter', () => {
+    boardNameElement.style.background = 'rgba(102, 126, 234, 0.1)';
+  });
+  boardNameElement.addEventListener('mouseleave', () => {
+    boardNameElement.style.background = '';
+  });
+}
