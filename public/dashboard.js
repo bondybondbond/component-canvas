@@ -76,10 +76,145 @@ function removeCursorStyles(container) {
   });
 }
 
+
+/**
+ * 🎯 WHITESPACE CLEANUP: Inject CSS to compress excessive spacing
+ * 
+ * Purpose: Remove framework bloat (padding classes, empty elements, list gaps)
+ * while preserving all functionality (links, interactive elements, text content)
+ * 
+ * Categories:
+ * 1. Excessive Padding/Margins - Target framework classes (Pbot-xs, ssrcss-*)
+ * 2. Empty/Redundant Elements - Hide empty headings, screen-reader text
+ * 3. List Gaps - Compress line-height in lists
+ * 4. Dense Text Layout - Tighter text spacing overall
+ * 
+ * Reversible: Call removeCleanupCSS() to restore original styling
+ */
+function injectCleanupCSS() {
+  // Check if already injected
+  if (document.getElementById('cleanup-injected-css')) {
+    return;
+  }
+  
+  const cleanupStyles = `
+    /* 
+      CLEANUP INJECTION - Applied to captured components
+      Purpose: Remove framework bloat while preserving functionality
+      
+      ✗ Removed: Excessive padding, empty elements, list gaps
+      ✓ Preserved: Links, interactive elements, text content
+      
+      Reversible: Call removeCleanupCSS() to restore original styling
+    */
+    
+    /* CATEGORY 1: Excessive Padding/Margins */
+    /* Target: Framework padding classes (Yahoo: Pbot-xs, BBC: ssrcss-*) */
+    .component-content [class*="Pbot"],
+    .component-content [class*="Ptop"],
+    .component-content [class*="Pvertical"],
+    .component-content [class*="Mbot"],
+    .component-content [class*="Mtop"] {
+      padding: 2px !important;
+      margin: 2px 0 !important;
+    }
+    
+    /* CATEGORY 2: Empty/Redundant Elements */
+    /* Target: Empty headings, screen-reader text */
+    .component-content h6:empty,
+    .component-content h5:empty,
+    .component-content h4:empty,
+    .component-content .sr-only:empty,
+    .component-content .visually-hidden:empty {
+      display: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    
+    /* Reduce spacing on small headings with minimal content */
+    .component-content h6,
+    .component-content h5 {
+      margin: 2px 0 !important;
+      padding: 2px 0 !important;
+    }
+    
+    /* CATEGORY 3: List Gaps */
+    /* Target: Lists with excessive line-height */
+    /* Force bullets on all lists (fixes BBC "1.1" duplication + keeps visual hierarchy) */
+    .component-content ul,
+    .component-content ol {
+      list-style-type: disc !important;
+      margin: 4px 0 !important;
+      padding-left: 20px !important;
+    }
+    
+    .component-content ul li,
+    .component-content ol li {
+      line-height: 1.3 !important;
+      margin: 2px 0 !important;
+      padding: 2px 0 !important;
+    }
+    
+    /* CATEGORY 4: Dense Text Layout */
+    /* Tighter text spacing overall */
+    .component-content {
+      line-height: 1.4 !important;
+    }
+    
+    .component-content p {
+      margin: 4px 0 !important;
+      line-height: 1.4 !important;
+    }
+    
+    .component-content div {
+      line-height: 1.4 !important;
+    }
+    
+    /* Reduce gaps in nested wrapper elements */
+    .component-content [class*="Grid"],
+    .component-content [class*="Flex"],
+    .component-content [class*="Stack"] {
+      gap: 2px !important;
+    }
+    
+    /* Compress table rows (Yahoo Fantasy) */
+    .component-content table tr {
+      height: auto !important;
+    }
+    
+    .component-content table td {
+      padding: 4px 6px !important;
+    }
+  `;
+  
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'cleanup-injected-css';
+  styleSheet.textContent = cleanupStyles;
+  document.head.appendChild(styleSheet);
+  
+  console.log('✅ CSS cleanup injected');
+  
+  return styleSheet;
+}
+
+/**
+ * Remove the injected cleanup CSS (restore original styling)
+ */
+function removeCleanupCSS() {
+  const sheet = document.getElementById('cleanup-injected-css');
+  if (sheet) {
+    sheet.remove();
+    console.log('✅ CSS cleanup removed');
+  }
+}
+
 // Load and display components from storage
 chrome.storage.local.get(['components'], (result) => {
   const container = document.getElementById('components-container');
   const components = Array.isArray(result.components) ? result.components : [];
+  
+  // ✨ INJECT CSS CLEANUP for whitespace compression
+  injectCleanupCSS();
   
   
   
