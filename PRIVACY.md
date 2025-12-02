@@ -70,9 +70,9 @@ We may update this privacy policy from time to time. Any changes will be reflect
 ## Contact
 If you have questions about this privacy policy or ComponentCanvas's data practices, please contact:
 
-**Email**: [ADD_YOUR_SUPPORT_EMAIL_HERE]
+**Email**: bondybondbond@gmail.com
 
-**GitHub**: https://github.com/[ADD_YOUR_GITHUB_USERNAME]/component-canvas
+**GitHub**: https://github.com/bondybondbond/component-canvas
 
 ---
 

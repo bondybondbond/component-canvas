@@ -50,8 +50,8 @@ ComponentCanvas lets you capture and track specific sections of websites in a pe
 
 **Note:** Users are responsible for complying with the terms of service of websites they capture content from. ComponentCanvas fetches publicly accessible content only.
 
-**Support:** [ADD_YOUR_SUPPORT_EMAIL_HERE]  
-**Source Code:** https://github.com/[ADD_YOUR_GITHUB_USERNAME]/component-canvas
+**Support:** bondybondbond@gmail.com  
+**Source Code:** https://github.com/bondybondbond/component-canvas
 
 ---
 
