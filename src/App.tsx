@@ -3,10 +3,14 @@ import { useState, useEffect } from 'react';
 import './App.css';
 
 interface Component {
+  id: string; // UUID for matching sync + local data
   name: string;
   url: string;
   customLabel?: string; // User's custom label (optional)
   favicon?: string; // Site favicon URL
+  selector?: string; // From local storage
+  html_cache?: string; // From local storage
+  last_refresh?: string; // From local storage
 }
 
 function App() {
@@ -26,11 +30,20 @@ function App() {
       }
     });
 
-    // Load components
-    chrome.storage.sync.get(['components'], (result) => {
-      if (result.components) {
-        setComponents(result.components as Component[]);
-      }
+    // Load components from hybrid storage (sync metadata + local data)
+    chrome.storage.sync.get(['components'], (syncResult) => {
+      chrome.storage.local.get(['componentsData'], (localResult) => {
+        const metadata = (syncResult.components as any[]) || [];
+        const localData: Record<string, any> = localResult.componentsData || {};
+        
+        // Merge sync metadata with local data by ID
+        const merged = metadata.map((meta: any) => ({
+          ...meta,
+          ...localData[meta.id] // Add selector, html_cache, last_refresh if exists
+        }));
+        
+        setComponents(merged);
+      });
     });
   }, []);
 
@@ -44,10 +57,25 @@ function App() {
   };
 
   const handleDelete = (component: Component) => {
-    // Find and remove the specific component from the full list
-    const updated = components.filter((c) => !(c.url === component.url && c.name === component.name));
+    // Remove from both sync and local storage
+    const updated = components.filter((c) => c.id !== component.id);
     setComponents(updated);
-    chrome.storage.sync.set({ components: updated });
+    
+    // Update sync storage (metadata only)
+    const syncData = updated.map(c => ({
+      id: c.id,
+      name: c.name,
+      url: c.url,
+      favicon: c.favicon
+    }));
+    chrome.storage.sync.set({ components: syncData });
+    
+    // Update local storage (remove HTML data)
+    chrome.storage.local.get(['componentsData'], (result) => {
+      const localData: Record<string, any> = result.componentsData || {};
+      delete localData[component.id];
+      chrome.storage.local.set({ componentsData: localData });
+    });
   };
 
   const handleOpenCanvas = () => {

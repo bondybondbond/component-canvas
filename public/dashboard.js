@@ -208,10 +208,18 @@ function removeCleanupCSS() {
   }
 }
 
-// Load and display components from storage
-chrome.storage.sync.get(['components'], (result) => {
-  const container = document.getElementById('components-container');
-  const components = Array.isArray(result.components) ? result.components : [];
+// Load and display components from hybrid storage (sync metadata + local data)
+chrome.storage.sync.get(['components'], (syncResult) => {
+  chrome.storage.local.get(['componentsData'], (localResult) => {
+    const container = document.getElementById('components-container');
+    const metadata = Array.isArray(syncResult.components) ? syncResult.components : [];
+    const localData = localResult.componentsData || {};
+    
+    // Merge sync metadata with local HTML data by ID
+    const components = metadata.map(meta => ({
+      ...meta,
+      ...localData[meta.id] // Add selector, html_cache, last_refresh if exists
+    }));
   
   // ✨ INJECT CSS CLEANUP for whitespace compression
   injectCleanupCSS();
@@ -340,22 +348,37 @@ chrome.storage.sync.get(['components'], (result) => {
     const deleteBtn = card.querySelector('.delete-btn');
     deleteBtn.addEventListener('click', () => {
       if (confirm(`Delete "${component.customLabel || component.name}"? This cannot be undone.`)) {
-        // Remove this component from the array
+        // Remove from both storages
         const updated = components.filter((c, i) => i !== index);
-        // Save back to storage
-        chrome.storage.sync.set({ components: updated }, () => {
-          // Remove card from DOM
-          card.remove();
-          // Show empty state if no components left
-          if (updated.length === 0) {
-            container.innerHTML = `
-              <div class="empty-state">
-                <h2>No components yet</h2>
-                <p>Use the extension popup to capture components from any website</p>
-              </div>
-            `;
-          }
+        
+        // Update sync storage (metadata only)
+        const syncData = updated.map(c => ({
+          id: c.id,
+          name: c.name,
+          url: c.url,
+          favicon: c.favicon,
+          customLabel: c.customLabel
+        }));
+        chrome.storage.sync.set({ components: syncData });
+        
+        // Update local storage (remove HTML data)
+        chrome.storage.local.get(['componentsData'], (result) => {
+          const localData = result.componentsData || {};
+          delete localData[component.id];
+          chrome.storage.local.set({ componentsData: localData });
         });
+        
+        // Remove card from DOM
+        card.remove();
+        // Show empty state if no components left
+        if (updated.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h2>No components yet</h2>
+              <p>Use the extension popup to capture components from any website</p>
+            </div>
+          `;
+        }
       }
     });
     
@@ -388,8 +411,15 @@ chrome.storage.sync.get(['components'], (result) => {
           component.customLabel = newLabel;
           titleElement.textContent = newLabel;
           
-          // Save to storage
-          chrome.storage.sync.set({ components });
+          // Save only metadata to sync storage
+          const syncData = components.map(c => ({
+            id: c.id,
+            name: c.name,
+            url: c.url,
+            favicon: c.favicon,
+            customLabel: c.customLabel
+          }));
+          chrome.storage.sync.set({ components: syncData });
         }
       };
       
@@ -476,6 +506,7 @@ chrome.storage.sync.get(['components'], (result) => {
     
     grid.appendChild(card);
   });
+  }); // Close chrome.storage.local.get
 });
 
 // ==========================================
@@ -1096,12 +1127,23 @@ async function refreshAll() {
   btn.style.background = '#6c757d';
   
   try {
-    // Get current components
-    const result = await new Promise(resolve => {
+    // Get components from hybrid storage (sync metadata + local data)
+    const syncResult = await new Promise(resolve => {
       chrome.storage.sync.get(['components'], resolve);
     });
     
-    const components = result.components || [];
+    const localResult = await new Promise(resolve => {
+      chrome.storage.local.get(['componentsData'], resolve);
+    });
+    
+    const metadata = syncResult.components || [];
+    const localData = localResult.componentsData || {};
+    
+    // Merge sync metadata with local data
+    const components = metadata.map(meta => ({
+      ...meta,
+      ...localData[meta.id]
+    }));
     
     if (components.length === 0) {
       btn.textContent = '✅ No components to refresh';
@@ -1134,32 +1176,46 @@ async function refreshAll() {
       toastManager.completeComponent(refreshResult.success);
     }
     
-    // Update components with new data
-    const updatedComponents = components.map((comp, index) => {
+    // Update components with new data (split between sync and local storage)
+    const updatedMetadata = [];
+    const updatedLocalData = {};
+    
+    components.forEach((comp, index) => {
       const result = results[index];
+      
+      // Always save metadata to sync
+      updatedMetadata.push({
+        id: comp.id,
+        name: comp.name,
+        url: comp.url,
+        favicon: comp.favicon,
+        customLabel: comp.customLabel
+      });
+      
+      // Save full data to local
       if (result.success) {
-        return {
-          ...comp,
+        updatedLocalData[comp.id] = {
+          selector: comp.selector,
           html_cache: result.html_cache,
-          last_refresh: result.last_refresh,
-          status: result.status
-        };
-      } else if (result.keepOriginal) {
-        return {
-          ...comp,
-          status: 'active'
+          last_refresh: result.last_refresh
         };
       } else {
-        return {
-          ...comp,
-          status: 'error'
+        // Keep existing data if refresh failed
+        updatedLocalData[comp.id] = {
+          selector: comp.selector,
+          html_cache: comp.html_cache,
+          last_refresh: comp.last_refresh
         };
       }
     });
     
-    // Save updated components
+    // Save to both storages
     await new Promise(resolve => {
-      chrome.storage.sync.set({ components: updatedComponents }, resolve);
+      chrome.storage.sync.set({ components: updatedMetadata }, resolve);
+    });
+    
+    await new Promise(resolve => {
+      chrome.storage.local.set({ componentsData: updatedLocalData }, resolve);
     });
     
     // Show success toast

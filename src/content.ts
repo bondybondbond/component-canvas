@@ -470,11 +470,21 @@ function handleClick(event: MouseEvent) {
   
   log('📦 Component object created:', component.id);
 
-  // Save
-  log('💾 Attempting to save to chrome.storage.sync...');
+  // Save with hybrid storage model
+  log('💾 Attempting hybrid save (sync + local)...');
+  
+  // Prepare lightweight metadata for sync storage (NO selector - too large!)
+  const metadata = {
+    id: component.id,
+    url: component.url,
+    name: component.name,
+    favicon: component.favicon
+  };
+  
+  // Get existing sync data
   chrome.storage.sync.get(['components'], (result) => {
     const existingCount = (result.components as any[])?.length || 0;
-    log('📥 Storage retrieved, existing components:', existingCount);
+    log('📥 Sync storage retrieved, existing components:', existingCount);
     
     if (chrome.runtime.lastError) {
       console.error('❌ Chrome storage error:', chrome.runtime.lastError);
@@ -482,25 +492,47 @@ function handleClick(event: MouseEvent) {
       return;
     }
     
-    const list = Array.isArray(result.components) ? result.components : [];
-    list.push(component);
-    log('📝 Updated list length:', list.length);
+    const metadataList = Array.isArray(result.components) ? result.components : [];
+    metadataList.push(metadata);
+    log('📝 Updated metadata list length:', metadataList.length);
     
-    chrome.storage.sync.set({ components: list }, () => {
+    // Save metadata to sync storage
+    chrome.storage.sync.set({ components: metadataList }, () => {
       if (chrome.runtime.lastError) {
-        console.error('❌ Chrome storage set error:', chrome.runtime.lastError);
+        console.error('❌ Sync storage set error:', chrome.runtime.lastError);
         showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
         return;
       }
       
-      log('✅ Component saved successfully!');
+      log('✅ Metadata saved to sync storage');
       
-      // Clear green flash
-      target.style.outline = '';
-      target.style.cursor = '';
-      
-      showStyledNotification(`✅ Saved: ${name}`, 'success');
-      toggleCapture(false); // Turn off after save
+      // Save full component data to local storage (including selector)
+      chrome.storage.local.get(['componentsData'], (localResult) => {
+        const localData: Record<string, any> = localResult.componentsData || {};
+        localData[component.id] = {
+          selector: component.selector,  // Needed for refresh
+          html_cache: component.html_cache,
+          last_refresh: component.last_refresh
+        };
+        
+        chrome.storage.local.set({ componentsData: localData }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Local storage set error:', chrome.runtime.lastError);
+            showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
+            return;
+          }
+          
+          log('✅ Full data saved to local storage');
+          log('✅ Component saved successfully (hybrid)!');
+          
+          // Clear green flash
+          target.style.outline = '';
+          target.style.cursor = '';
+          
+          showStyledNotification(`✅ Saved: ${name}`, 'success');
+          toggleCapture(false); // Turn off after save
+        });
+      });
     });
   });
 }
