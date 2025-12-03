@@ -130,7 +130,7 @@ function App() {
           cursor: 'pointer'
         }}
       >
-        ✂️ Start Capture
+        ✂️ Save a Spot
       </button>
       {currentDomain && !currentDomain.startsWith('chrome') && currentDomain.length > 5 && (
         <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
