@@ -441,7 +441,7 @@ function handleClick(event: MouseEvent) {
   
   // Strategy 4: Fallback to generic label
   if (!name) {
-    name = `Component from ${window.location.hostname}`;
+    name = `Spot from ${window.location.hostname}`;
     log('📝 Name fallback:', name);
   }
   

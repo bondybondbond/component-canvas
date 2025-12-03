@@ -113,7 +113,7 @@ function App() {
           cursor: 'pointer'
         }}
       >
-        🖼️ Open Canvas
+        🖼️ Open Board
       </button>
       <button 
         onClick={handleToggleCapture} 
@@ -132,14 +132,14 @@ function App() {
       >
         ✂️ Start Capture
       </button>
-      {currentDomain && (
+      {currentDomain && !currentDomain.startsWith('chrome') && currentDomain.length > 5 && (
         <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <img 
             src={`https://www.google.com/s2/favicons?sz=64&domain=${currentDomain}`} 
             alt="" 
             style={{ width: '16px', height: '16px' }} 
           />
-          <span>Showing components from: {currentDomain}</span>
+          <span>Showing spots from: {currentDomain}</span>
         </div>
       )}
       <div>
