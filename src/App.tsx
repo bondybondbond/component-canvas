@@ -132,7 +132,7 @@ function App() {
       >
         ✂️ Save a Spot
       </button>
-      {currentDomain && !currentDomain.startsWith('chrome') && currentDomain.length > 5 && (
+      {currentDomain && currentDomain.includes('.') && (
         <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <img 
             src={`https://www.google.com/s2/favicons?sz=64&domain=${currentDomain}`} 
