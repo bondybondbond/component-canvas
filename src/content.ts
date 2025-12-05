@@ -271,59 +271,8 @@ function showStyledNotification(message: string, type: 'success' | 'error' = 'su
 }
 
 function sanitizeHTML(element: HTMLElement): string {
-  // ✨ CRITICAL: Get computed styles BEFORE cloning (must be in DOM)
-  // Build a list of elements to remove based on their visibility
-  const elementsToRemove: Element[] = [];
-  
-  // Check the element itself and all descendants
-  const allElements = [element, ...Array.from(element.querySelectorAll('*'))];
-  
-  allElements.forEach(el => {
-    if (el instanceof HTMLElement) {
-      const styles = window.getComputedStyle(el);
-      
-      // Extract values for cleaner checks
-      const display = styles.display;
-      const visibility = styles.visibility;
-      const opacity = parseFloat(styles.opacity);
-      const position = styles.position;
-      const clip = styles.clip;
-      const clipPath = styles.clipPath;
-      const height = styles.height;
-      const width = styles.width;
-      
-      // Check if element is hidden by CSS
-      const isHidden = 
-        display === 'none' ||
-        visibility === 'hidden' ||
-        opacity === 0 ||
-        el.hasAttribute('hidden') ||
-        (position === 'absolute' && (
-          clip.includes('rect(') ||
-          clipPath.includes('inset(') ||
-          clipPath.includes('circle(') ||
-          clipPath.includes('polygon(')
-        )) ||
-        (height === '0px' && width === '0px');
-      
-      if (isHidden && el !== element) { // Don't remove the root element
-        elementsToRemove.push(el);
-      }
-    }
-  });
-  
-  // Clone the element AFTER identifying what to remove
+  // Clone and clean up duplicate/hidden elements
   const clone = element.cloneNode(true) as HTMLElement;
-  
-  // Remove hidden elements from clone (using path to identify them)
-  elementsToRemove.forEach(originalEl => {
-    // Find corresponding element in clone by creating a unique selector
-    const path = getElementPath(originalEl, element);
-    const cloneEl = getElementByPath(clone, path);
-    if (cloneEl) {
-      cloneEl.remove();
-    }
-  });
   
   // 🎯 HIT LIST: Remove known duplicate/hidden elements by class name
   // This fixes BBC's triple-text pattern (MobileValue, DesktopValue, visually-hidden)
@@ -450,92 +399,98 @@ function handleClick(event: MouseEvent) {
   const selector = generateSelector(target); // Smart selector for refresh
   log('🎯 Final selector:', selector);
   
-  // ✨ SANITIZE HTML BEFORE STORING
-  const cleanedHTML = sanitizeHTML(target);
-  log('🧹 HTML sanitized, length:', cleanedHTML.length, 'chars');
+  // ⏳ WAIT 2 SECONDS FOR JS FRAMEWORKS TO RENDER
+  // Fixes React-heavy sites like Guardian where content loads after initial DOM
+  log('⏳ Waiting 2s for JavaScript to render...');
   
-  // Extract domain for favicon
-  const domain = new URL(window.location.href).hostname;
-  const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${domain}`;
-  
-  const component = {
-    id: crypto.randomUUID(),
-    url: window.location.href,
-    selector: selector,
-    name: name,
-    html_cache: cleanedHTML,
-    last_refresh: new Date().toISOString(),
-    favicon: faviconUrl
-  };
-  
-  log('📦 Component object created:', component.id);
+  setTimeout(() => {
+    // ✨ SANITIZE HTML BEFORE STORING (after JS renders)
+    const cleanedHTML = sanitizeHTML(target);
+    log('🧹 HTML sanitized, length:', cleanedHTML.length, 'chars');
+    
+    // Extract domain for favicon
+    const domain = new URL(window.location.href).hostname;
+    const faviconUrl = `https://www.google.com/s2/favicons?sz=64&domain=${domain}`;
+    
+    const component = {
+      id: crypto.randomUUID(),
+      url: window.location.href,
+      selector: selector,
+      name: name,
+      html_cache: cleanedHTML,
+      last_refresh: new Date().toISOString(),
+      favicon: faviconUrl
+    };
+    
+    log('📦 Component object created:', component.id);
 
-  // Save with hybrid storage model
-  log('💾 Attempting hybrid save (sync + local)...');
-  
-  // Prepare metadata for sync storage (includes selector for cross-device refresh)
-  const metadata = {
-    id: component.id,
-    url: component.url,
-    name: component.name,
-    favicon: component.favicon,
-    selector: component.selector  // Essential for refresh on other devices
-  };
-  
-  // Get existing sync data
-  chrome.storage.sync.get(['components'], (result) => {
-    const existingCount = (result.components as any[])?.length || 0;
-    log('📥 Sync storage retrieved, existing components:', existingCount);
+    // Save with hybrid storage model
+    log('💾 Attempting hybrid save (sync + local)...');
     
-    if (chrome.runtime.lastError) {
-      console.error('❌ Chrome storage error:', chrome.runtime.lastError);
-      showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
-      return;
-    }
+    // Prepare metadata for sync storage (includes selector for cross-device refresh)
+    const metadata = {
+      id: component.id,
+      url: component.url,
+      name: component.name,
+      favicon: component.favicon,
+      selector: component.selector  // Essential for refresh on other devices
+    };
     
-    const metadataList = Array.isArray(result.components) ? result.components : [];
-    metadataList.push(metadata);
-    log('📝 Updated metadata list length:', metadataList.length);
-    
-    // Save metadata to sync storage
-    chrome.storage.sync.set({ components: metadataList }, () => {
+    // Get existing sync data
+    chrome.storage.sync.get(['components'], (result) => {
+      const existingCount = (result.components as any[])?.length || 0;
+      log('📥 Sync storage retrieved, existing components:', existingCount);
+      
       if (chrome.runtime.lastError) {
-        console.error('❌ Sync storage set error:', chrome.runtime.lastError);
+        console.error('❌ Chrome storage error:', chrome.runtime.lastError);
         showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
         return;
       }
       
-      log('✅ Metadata saved to sync storage');
+      const metadataList = Array.isArray(result.components) ? result.components : [];
+      metadataList.push(metadata);
+      log('📝 Updated metadata list length:', metadataList.length);
       
-      // Save full component data to local storage (including selector)
-      chrome.storage.local.get(['componentsData'], (localResult) => {
-        const localData: Record<string, any> = localResult.componentsData || {};
-        localData[component.id] = {
-          selector: component.selector,  // Needed for refresh
-          html_cache: component.html_cache,
-          last_refresh: component.last_refresh
-        };
+      // Save metadata to sync storage
+      chrome.storage.sync.set({ components: metadataList }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Sync storage set error:', chrome.runtime.lastError);
+          showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
+          return;
+        }
         
-        chrome.storage.local.set({ componentsData: localData }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('❌ Local storage set error:', chrome.runtime.lastError);
-            showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
-            return;
-          }
+        log('✅ Metadata saved to sync storage');
+        
+        // Save full component data to local storage (including selector)
+        chrome.storage.local.get(['componentsData'], (localResult) => {
+          const localData: Record<string, any> = localResult.componentsData || {};
+          localData[component.id] = {
+            selector: component.selector,  // Needed for refresh
+            html_cache: component.html_cache,
+            last_refresh: component.last_refresh
+          };
           
-          log('✅ Full data saved to local storage');
-          log('✅ Component saved successfully (hybrid)!');
-          
-          // Clear green flash
-          target.style.outline = '';
-          target.style.cursor = '';
-          
-          showStyledNotification(`✅ Saved: ${name}`, 'success');
-          toggleCapture(false); // Turn off after save
+          chrome.storage.local.set({ componentsData: localData }, () => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Local storage set error:', chrome.runtime.lastError);
+              showStyledNotification(`❌ Save failed: ${chrome.runtime.lastError.message}`, 'error');
+              return;
+            }
+            
+            log('✅ Full data saved to local storage');
+            log('✅ Component saved successfully (hybrid)!');
+            
+            // Clear green flash
+            target.style.outline = '';
+            target.style.cursor = '';
+            
+            showStyledNotification(`✅ Saved: ${name}`, 'success');
+            toggleCapture(false); // Turn off after save
+          });
         });
       });
     });
-  });
+  }, 2000); // 2-second delay for JS rendering
 }
 
 // 4. Escape Key Handler

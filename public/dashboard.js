@@ -22,12 +22,159 @@ function cleanupDuplicates(html) {
     temp.querySelectorAll(selector).forEach(el => el.remove());
   });
   
+  // Remove empty wrapper divs/spans that only add spacing
+  temp.querySelectorAll('div, span').forEach(el => {
+    // Check if element is effectively empty (no text, only whitespace/images/br)
+    const hasText = el.textContent.trim().length > 0;
+    const hasImages = el.querySelector('img');
+    const hasLinks = el.querySelector('a');
+    
+    // If it's just a spacing wrapper with no content
+    if (!hasText && !hasImages && !hasLinks) {
+      el.remove();
+    }
+  });
+  
   // Remove broken SVG sprite references (prevents console errors)
   temp.querySelectorAll('svg use[href*=".svg#"]').forEach(use => {
     use.parentElement.remove(); // Remove the entire SVG element
   });
   
+  // 🎯 SCALABLE SVG VALIDATION: Remove unrenderable SVGs (Guardian numbers, etc.)
+  // Tests if SVG can render properly at 25px using heuristics
+  temp.querySelectorAll('svg').forEach(svg => {
+    if (!isSVGRenderable(svg)) {
+      console.log('🗑️ Removed unrenderable SVG:', svg.getAttribute('class') || 'no-class');
+      svg.remove();
+    }
+  });
+  
+  // 🎯 DECORATIVE IMAGE REMOVAL: Remove likely decorative images (Guardian number graphics, etc.)
+  temp.querySelectorAll('img').forEach(img => {
+    const listItem = img.closest('li');
+    if (!listItem) return; // Not in a list, keep it
+    
+    const alt = img.getAttribute('alt') || '';
+    const src = img.getAttribute('src') || '';
+    
+    // Pattern 1: Number-only alt text (Guardian article pages use these)
+    if (/^[0-9]+$/.test(alt.trim())) {
+      console.log('🗑️ Removed decorative number image:', alt);
+      img.remove();
+      return;
+    }
+    
+    // Pattern 2: Empty/missing alt + small decorative class patterns
+    if (!alt && (
+      img.className.includes('number') ||
+      img.className.includes('rank') ||
+      img.className.includes('index')
+    )) {
+      console.log('🗑️ Removed decorative image (no alt + decorative class)');
+      img.remove();
+      return;
+    }
+    
+    // Pattern 3: Data URIs with suspicious patterns (inline decorative graphics)
+    if (src.startsWith('data:image') && src.length < 500) {
+      console.log('🗑️ Removed small inline image (likely decorative)');
+      img.remove();
+      return;
+    }
+  });
+  
   return temp.innerHTML;
+}
+
+// Post-render cleanup removed - Guardian tab spacing is a known limitation
+  
+  // Get all meaningful content indicators
+  const links = contentDiv.querySelectorAll('a[href]');
+  const listItems = contentDiv.querySelectorAll('li');
+  const text = (contentDiv.textContent || '').replace(/\s+/g, ' ').trim();
+  const textLength = text.length;
+  
+  // DEBUG: Always log what we found
+  console.log('🔍 Card content check:', {
+    links: links.length,
+    listItems: listItems.length,
+    textLength: textLength,
+    textSample: text.slice(0, 100)
+  });
+  
+  // Note: List items already exist and have content
+  // The white space issue is CSS-based (excessive spacing), handled by injectCleanupCSS()
+  console.log(`  → Card has ${listItems.length} list items with proper content`);
+  
+  // Fallback: If no list items, check overall content
+  // Guardian's empty tab: No links, ~10-50 chars of labels only
+  // BBC's fixtures: Lots of links, substantial text (>100 chars)
+  if (links.length === 0 && textLength < 50) {
+    console.log(`🗑️ COLLAPSING empty content card: ${textLength} chars, 0 links`);
+    card.style.display = 'none';
+  } else {
+    console.log(`✓ Keeping card: ${links.length} links, ${textLength} chars`);
+  }
+}
+
+/**
+ * Test if an SVG can render properly at 25px
+ * Uses heuristics to detect broken/unscalable SVGs without canvas rendering
+ * 
+ * @param {SVGElement} svg - The SVG element to test
+ * @returns {boolean} - true if renderable, false if broken
+ */
+function isSVGRenderable(svg) {
+  try {
+    // CHECK 1: Must have dimensions (viewBox OR width/height)
+    const viewBox = svg.getAttribute('viewBox');
+    const width = svg.getAttribute('width');
+    const height = svg.getAttribute('height');
+    
+    if (!viewBox && !width && !height) {
+      console.log('  ❌ No dimensions (viewBox/width/height)');
+      return false; // Can't scale without dimensions
+    }
+    
+    // CHECK 2: Must have visible styling (fill/stroke/color)
+    // SVGs without explicit styling rely on external CSS = broken when extracted
+    const hasFill = svg.querySelector('[fill]:not([fill="none"]):not([fill=""])');
+    const hasStroke = svg.querySelector('[stroke]:not([stroke="none"]):not([stroke=""])');
+    const hasVisibleStyle = svg.querySelector('[style*="fill"],[style*="stroke"],[style*="color"]');
+    
+    // Exception: Allow SVGs with currentColor (inherit from text color)
+    const hasCurrentColor = svg.querySelector('[fill="currentColor"],[stroke="currentColor"]');
+    
+    if (!hasFill && !hasStroke && !hasVisibleStyle && !hasCurrentColor) {
+      console.log('  ❌ No visible styling (fill/stroke/color)');
+      return false; // No visible content = broken
+    }
+    
+    // CHECK 3: Path complexity check (overly complex = likely broken)
+    const paths = svg.querySelectorAll('path');
+    for (const path of paths) {
+      const d = path.getAttribute('d');
+      if (d && d.length > 1000) {
+        console.log('  ❌ Path too complex (>1000 chars)');
+        return false; // Guardian-style broken path data
+      }
+    }
+    
+    // CHECK 4: Must have actual content (not just empty container)
+    const hasContent = svg.querySelector('path, circle, rect, polygon, line, polyline, ellipse, text, image');
+    if (!hasContent) {
+      console.log('  ❌ No content elements');
+      return false; // Empty SVG
+    }
+    
+    // PASSED ALL CHECKS
+    console.log('  ✅ SVG is renderable');
+    return true;
+    
+  } catch (error) {
+    console.error('  ❌ SVG validation error:', error);
+    return false; // If validation fails, assume broken
+  }
 }
 
 function fixRelativeUrls(container, sourceUrl) {
@@ -146,18 +293,34 @@ function injectCleanupCSS() {
     /* CATEGORY 3: List Gaps */
     /* Target: Lists with excessive line-height */
     /* Force bullets on all lists (fixes BBC "1.1" duplication + keeps visual hierarchy) */
-    .component-content ul,
-    .component-content ol {
+    .component-content ul {
       list-style-type: disc !important;
-      margin: 4px 0 !important;
+      margin: 1px 0 !important;
+      padding-left: 20px !important;
+    }
+    
+    .component-content ol {
+      list-style-type: decimal !important;
+      margin: 1px 0 !important;
       padding-left: 20px !important;
     }
     
     .component-content ul li,
     .component-content ol li {
-      line-height: 1.3 !important;
-      margin: 2px 0 !important;
+      line-height: 1.2 !important;
+      margin: 0 !important;
+      padding: 1px 0 !important;
+      min-height: 0 !important;
+      height: auto !important;
+    }
+    
+    /* 🎯 GUARDIAN FIX: Remove excessive spacing from list item children */
+    .component-content li > div,
+    .component-content li > section,
+    .component-content li > article {
+      margin: 0 !important;
       padding: 2px 0 !important;
+      line-height: 1.2 !important;
     }
     
     /* CATEGORY 4: Dense Text Layout */
