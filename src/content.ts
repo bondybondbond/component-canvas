@@ -281,7 +281,9 @@ function sanitizeHTML(element: HTMLElement): string {
     '.visually-hidden',           // Screen reader text (exact class)
     '.sr-only',                   // Bootstrap screen reader
     '[class*="MobileValue"]',     // BBC mobile duplicate (partial match for CSS-in-JS)
-    '[class*="VisuallyHidden"]'   // BBC visually hidden (partial match)
+    '[class*="VisuallyHidden"]',  // BBC visually hidden (partial match)
+    '[class*="team-name--short"]', // Premier League mobile team names (duplicate)
+    '[class*="team-name--abbr"]'  // Generic abbreviated team names (backup pattern)
   ];
   duplicateSelectors.forEach(selector => {
     clone.querySelectorAll(selector).forEach(el => el.remove());
