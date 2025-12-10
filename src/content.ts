@@ -271,8 +271,26 @@ function showStyledNotification(message: string, type: 'success' | 'error' = 'su
 }
 
 function sanitizeHTML(element: HTMLElement): string {
+  // 🎯 STEP 1: Mark hidden elements in ORIGINAL DOM (before cloning)
+  // Check computed styles on live DOM elements, then mark them for removal
+  const allOriginalElements = [element, ...Array.from(element.querySelectorAll('*'))];
+  const markedElements: HTMLElement[] = [];
+  
+  allOriginalElements.forEach(el => {
+    if (el instanceof HTMLElement && el !== element) {
+      const computed = window.getComputedStyle(el);
+      if (computed.display === 'none') {
+        el.setAttribute('data-spotboard-hidden', 'true');
+        markedElements.push(el);
+      }
+    }
+  });
+
   // Clone and clean up duplicate/hidden elements
   const clone = element.cloneNode(true) as HTMLElement;
+  
+  // Clean up markers from original DOM (restore page to pristine state)
+  markedElements.forEach(el => el.removeAttribute('data-spotboard-hidden'));
   
   // 🎯 HIT LIST: Remove known duplicate/hidden elements by class name
   // This fixes mobile/desktop duplicate content patterns across sites
@@ -301,6 +319,13 @@ function sanitizeHTML(element: HTMLElement): string {
   duplicateSelectors.forEach(selector => {
     clone.querySelectorAll(selector).forEach(el => el.remove());
   });
+
+  // 🎯 Remove elements with display:none (catches CSS-based hidden duplicates)
+  // The Verge and other sites use CSS-in-JS classes where mobile/desktop versions
+  // are differentiated by computed display style rather than class keywords
+  // Strategy: Mark hidden elements in ORIGINAL DOM before cloning, then remove from clone
+  const hiddenInClone = clone.querySelectorAll('[data-spotboard-hidden="true"]');
+  hiddenInClone.forEach(el => el.remove());
 
   // Remove capture-related inline styles from clone
   const cloneElements = [clone, ...Array.from(clone.querySelectorAll('*'))];

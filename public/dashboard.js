@@ -12,15 +12,51 @@ function cleanupDuplicates(html) {
   // Remove known duplicate/hidden elements
   // Note: BBC uses CSS-in-JS class names like "ssrcss-xxx-MobileValue"
   const duplicateSelectors = [
-    '.visually-hidden',           // Screen reader text
+    // Screen reader / accessibility (always hidden)
+    '.visually-hidden',           // Screen reader text (exact class)
     '.sr-only',                   // Bootstrap screen reader
-    '[class*="MobileValue"]',     // BBC mobile duplicate (partial match)
-    '[class*="VisuallyHidden"]'   // BBC visually hidden (partial match)
+    '[class*="VisuallyHidden"]',  // BBC visually hidden (partial match)
+    
+    // Mobile-specific content (hidden on desktop)
+    '[class*="MobileValue"]',     // BBC mobile duplicate (partial match for CSS-in-JS)
+    '[class*="-mobile"]',         // Generic mobile classes (e.g., "content-mobile", "title-mobile")
+    '[class*="mobile-"]',         // Generic mobile classes (e.g., "mobile-content", "mobile-title")
+    
+    // Shortened/abbreviated content (mobile versions)
+    '[class*="-short"]',          // Generic short classes (e.g., "team-name--short", "title-short")
+    '[class*="short-"]',          // Generic short classes (e.g., "short-title", "short-name")
+    '[class*="team-name--short"]',// Premier League mobile team names (duplicate)
+    '[class*="team-name--abbr"]', // Generic abbreviated team names (backup pattern)
+    '[class*="-abbr"]',           // Generic abbreviation classes (e.g., "name-abbr", "title-abbr")
+    '[class*="abbreviated"]'      // Explicit abbreviated content
   ];
   
   duplicateSelectors.forEach(selector => {
     temp.querySelectorAll(selector).forEach(el => el.remove());
   });
+
+  // 🎯 Remove elements with display:none (catches CSS-based hidden duplicates)
+  // The Verge and other sites use CSS-in-JS where mobile/desktop versions
+  // are differentiated by computed display style rather than class keywords
+  // Must attach temp to DOM for getComputedStyle to work
+  temp.style.position = 'absolute';
+  temp.style.left = '-9999px';
+  temp.style.visibility = 'hidden';
+  document.body.appendChild(temp);
+  
+  // Check all descendants for display:none
+  const allElements = Array.from(temp.querySelectorAll('*'));
+  allElements.forEach(el => {
+    if (el instanceof HTMLElement) {
+      const computed = window.getComputedStyle(el);
+      if (computed.display === 'none') {
+        el.remove();
+      }
+    }
+  });
+  
+  // Detach temp from DOM
+  document.body.removeChild(temp);
   
   // Remove empty wrapper divs/spans that only add spacing
   temp.querySelectorAll('div, span').forEach(el => {
@@ -1127,11 +1163,40 @@ async function tryBackgroundWithSpoof(url, selector) {
     // Wait additional time for JS to fully load (complex sites)
     await new Promise(r => setTimeout(r, 3000));
     
-    // Try to extract
+    // Try to extract - WITH SANITIZATION IN THE TAB
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       args: [selector],
-      func: (sel) => document.querySelector(sel)?.outerHTML || null
+      func: (sel) => {
+        const element = document.querySelector(sel);
+        if (!element) return null;
+        
+        // Mark hidden elements BEFORE cloning (while CSS is loaded)
+        const allElements = [element, ...Array.from(element.querySelectorAll('*'))];
+        const marked = [];
+        
+        allElements.forEach(el => {
+          if (el instanceof HTMLElement && el !== element) {
+            const computed = window.getComputedStyle(el);
+            if (computed.display === 'none') {
+              el.setAttribute('data-spotboard-hidden', 'true');
+              marked.push(el);
+            }
+          }
+        });
+        
+        // Clone with markers
+        const clone = element.cloneNode(true);
+        
+        // Clean up original DOM
+        marked.forEach(el => el.removeAttribute('data-spotboard-hidden'));
+        
+        // Remove marked elements from clone
+        const hiddenInClone = clone.querySelectorAll('[data-spotboard-hidden="true"]');
+        hiddenInClone.forEach(el => el.remove());
+        
+        return clone.outerHTML;
+      }
     });
     
     const html = results[0]?.result;
@@ -1164,11 +1229,40 @@ async function tryActiveTab(url, selector) {
     // Wait for JS to load
     await new Promise(r => setTimeout(r, 3000));
     
-    // Extract
+    // Extract - WITH SANITIZATION IN THE TAB
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       args: [selector],
-      func: (sel) => document.querySelector(sel)?.outerHTML || null
+      func: (sel) => {
+        const element = document.querySelector(sel);
+        if (!element) return null;
+        
+        // Mark hidden elements BEFORE cloning (while CSS is loaded)
+        const allElements = [element, ...Array.from(element.querySelectorAll('*'))];
+        const marked = [];
+        
+        allElements.forEach(el => {
+          if (el instanceof HTMLElement && el !== element) {
+            const computed = window.getComputedStyle(el);
+            if (computed.display === 'none') {
+              el.setAttribute('data-spotboard-hidden', 'true');
+              marked.push(el);
+            }
+          }
+        });
+        
+        // Clone with markers
+        const clone = element.cloneNode(true);
+        
+        // Clean up original DOM
+        marked.forEach(el => el.removeAttribute('data-spotboard-hidden'));
+        
+        // Remove marked elements from clone
+        const hiddenInClone = clone.querySelectorAll('[data-spotboard-hidden="true"]');
+        hiddenInClone.forEach(el => el.remove());
+        
+        return clone.outerHTML;
+      }
     });
     
     const html = results[0]?.result;
@@ -1275,16 +1369,29 @@ async function refreshComponent(component) {
         // BOTH must be empty - using AND not OR to be very conservative
         const isEmptyContainer = hasHeading && linkCount <= 1 && articleCount <= 1;
         
+        // NEW: Check for duplicate content (CSS-based responsive hiding pattern)
+        // Sites like The Verge include both mobile and desktop versions in DOM
+        const links = Array.from(tempDiv.querySelectorAll('a'));
+        const linkTexts = links.map(a => a.textContent.trim()).filter(t => t.length > 10);
+        const uniqueTexts = new Set(linkTexts);
+        const duplicateCount = linkTexts.length - uniqueTexts.size;
+        // Be conservative: Need BOTH significant duplicates (5+) AND duplicates >= unique (at least 50%)
+        const hasDuplicates = duplicateCount >= 5 && duplicateCount >= uniqueTexts.size;
+        
         console.log(`🔍 Skeleton check for ${component.name}:`, {
           isSkeletonContent,
           isEmptyContainer,
+          hasDuplicates,
+          duplicateCount,
+          totalLinks: linkTexts.length,
+          uniqueLinks: uniqueTexts.size,
           hasHeading,
           linkCount,
           articleCount,
           contentLength
         });
         
-        if (isSkeletonContent || isEmptyContainer) {
+        if (isSkeletonContent || isEmptyContainer || hasDuplicates) {
           // Try tab-based refresh as fallback
           const tabHtml = await tabBasedRefresh(component.url, component.selector);
           
