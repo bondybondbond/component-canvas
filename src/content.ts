@@ -275,15 +275,28 @@ function sanitizeHTML(element: HTMLElement): string {
   const clone = element.cloneNode(true) as HTMLElement;
   
   // 🎯 HIT LIST: Remove known duplicate/hidden elements by class name
-  // This fixes BBC's triple-text pattern (MobileValue, DesktopValue, visually-hidden)
+  // This fixes mobile/desktop duplicate content patterns across sites
+  // Modern responsive sites include BOTH mobile and desktop content in DOM, hiding one with CSS
+  // Common pattern: Full version (desktop) + Short version (mobile) = duplicates in capture
   // Note: BBC uses CSS-in-JS class names like "ssrcss-xxx-MobileValue", so we use partial match
   const duplicateSelectors = [
+    // Screen reader / accessibility (always hidden)
     '.visually-hidden',           // Screen reader text (exact class)
     '.sr-only',                   // Bootstrap screen reader
-    '[class*="MobileValue"]',     // BBC mobile duplicate (partial match for CSS-in-JS)
     '[class*="VisuallyHidden"]',  // BBC visually hidden (partial match)
-    '[class*="team-name--short"]', // Premier League mobile team names (duplicate)
-    '[class*="team-name--abbr"]'  // Generic abbreviated team names (backup pattern)
+    
+    // Mobile-specific content (hidden on desktop)
+    '[class*="MobileValue"]',     // BBC mobile duplicate (partial match for CSS-in-JS)
+    '[class*="-mobile"]',         // Generic mobile classes (e.g., "content-mobile", "title-mobile")
+    '[class*="mobile-"]',         // Generic mobile classes (e.g., "mobile-content", "mobile-title")
+    
+    // Shortened/abbreviated content (mobile versions)
+    '[class*="-short"]',          // Generic short classes (e.g., "team-name--short", "title-short")
+    '[class*="short-"]',          // Generic short classes (e.g., "short-title", "short-name")
+    '[class*="team-name--short"]',// Premier League mobile team names (duplicate)
+    '[class*="team-name--abbr"]', // Generic abbreviated team names (backup pattern)
+    '[class*="-abbr"]',           // Generic abbreviation classes (e.g., "name-abbr", "title-abbr")
+    '[class*="abbreviated"]'      // Explicit abbreviated content
   ];
   duplicateSelectors.forEach(selector => {
     clone.querySelectorAll(selector).forEach(el => el.remove());
