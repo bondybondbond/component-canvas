@@ -929,16 +929,16 @@ const toastManager = new RefreshToastManager();
 
 // Check if URL will need active tab (known problematic sites)
 function willNeedActiveTab(url) {
-  const problematicDomains = ['hotukdeals.com'];  // Only HotUKDeals needs tab-based refresh
+  const problematicDomains = ['hotukdeals.com', 'premierleague.com'];
   return problematicDomains.some(domain => url.includes(domain));
 }
 
 /**
  * Check if site MUST use active visible tab (can't work in background at all)
- * These sites have sophisticated Page Visibility API detection that blocks background loading
+ * These sites use IntersectionObserver or Page Visibility API that cannot be spoofed
  */
 function requiresVisibleTab(url) {
-  const visibilityCheckDomains = ['hotukdeals.com'];  // Removed producthunt.com - now has proper selector
+  const visibilityCheckDomains = ['hotukdeals.com', 'premierleague.com'];
   return visibilityCheckDomains.some(domain => url.includes(domain));
 }
 
@@ -1067,9 +1067,6 @@ async function handleConsentDialog(tabId) {
 async function tryBackgroundWithSpoof(url, selector) {
   const tab = await chrome.tabs.create({ url, active: false });
   
-  console.log(`🔍 [Background] Starting refresh for selector: ${selector}`);
-  console.log(`🔍 [Background] URL: ${url}`);
-  
   try {
     // CRITICAL: Inject spoof at document_start - BEFORE page scripts run
     await chrome.scripting.executeScript({
@@ -1127,11 +1124,8 @@ async function tryBackgroundWithSpoof(url, selector) {
       args: [selector]
     });
     
-    console.log(`🔍 [Background] Page state:`, pageState[0]?.result);
-    
     // Wait additional time for JS to fully load (complex sites)
     await new Promise(r => setTimeout(r, 3000));
-    console.log(`✓ [Background] Additional 3s wait complete (total ~8s)`);
     
     // Try to extract
     const results = await chrome.scripting.executeScript({
@@ -1141,13 +1135,6 @@ async function tryBackgroundWithSpoof(url, selector) {
     });
     
     const html = results[0]?.result;
-    
-    if (html) {
-      console.log(`✅ [Background] Extracted HTML: ${html.length} chars`);
-      console.log(`🔍 [Background] First 200 chars: ${html.substring(0, 200)}`);
-    } else {
-      console.log(`❌ [Background] Extraction failed - selector not found`);
-    }
     
     await chrome.tabs.remove(tab.id);
     return html;
@@ -1164,61 +1151,18 @@ async function tryActiveTab(url, selector) {
   const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = await chrome.tabs.create({ url, active: true });
   
-  console.log(`🔍 [Active Tab] Starting refresh for selector: ${selector}`);
-  console.log(`🔍 [Active Tab] URL: ${url}`);
-  
   try {
     // Wait 2s for initial page load
     await new Promise(r => setTimeout(r, 2000));
-    console.log(`✓ [Active Tab] Initial 2s wait complete`);
     
-    // ✨ NEW: Handle consent dialog if present
+    // Handle consent dialog if present
     const consentResult = await handleConsentDialog(tab.id);
     if (consentResult.found) {
-      console.log(`✓ [Active Tab] Consent dialog ${consentResult.action}`);
       await new Promise(r => setTimeout(r, 2000));
-      console.log(`✓ [Active Tab] Post-consent 2s wait complete`);
-    } else {
-      console.log(`✓ [Active Tab] No consent dialog detected`);
     }
-    
-    // DEBUG: Check page state before final wait
-    const pageStateBefore = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: (sel) => {
-        const element = document.querySelector(sel);
-        return {
-          selectorFound: !!element,
-          elementLength: element ? element.outerHTML.length : 0,
-          bodyLength: document.body.innerHTML.length,
-          title: document.title,
-          readyState: document.readyState
-        };
-      },
-      args: [selector]
-    });
-    
-    console.log(`🔍 [Active Tab] Page state (before final wait):`, pageStateBefore[0]?.result);
     
     // Wait for JS to load
     await new Promise(r => setTimeout(r, 3000));
-    console.log(`✓ [Active Tab] Additional 3s wait complete (total ~7s)`);
-    
-    // DEBUG: Check if content changed during wait
-    const pageStateAfter = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: (sel) => {
-        const element = document.querySelector(sel);
-        return {
-          selectorFound: !!element,
-          elementLength: element ? element.outerHTML.length : 0,
-          hasSkeletonElements: document.querySelectorAll('[class*="skeleton"]').length
-        };
-      },
-      args: [selector]
-    });
-    
-    console.log(`🔍 [Active Tab] Page state (after final wait):`, pageStateAfter[0]?.result);
     
     // Extract
     const results = await chrome.scripting.executeScript({
@@ -1228,13 +1172,6 @@ async function tryActiveTab(url, selector) {
     });
     
     const html = results[0]?.result;
-    
-    if (html) {
-      console.log(`✅ [Active Tab] Extracted HTML: ${html.length} chars`);
-      console.log(`🔍 [Active Tab] First 200 chars: ${html.substring(0, 200)}`);
-    } else {
-      console.log(`❌ [Active Tab] Extraction failed - selector not found`);
-    }
     
     // Close and switch back
     await chrome.tabs.remove(tab.id);
@@ -1322,8 +1259,32 @@ async function refreshComponent(component) {
                                    extractedHtml.includes('loading-placeholder') ||
                                    (extractedHtml.match(/skeleton/gi) || []).length > 2;
         
-        if (isSkeletonContent) {
-          
+        // NEW: Check if container has heading but no actual content (MarketWatch pattern)
+        // This catches JS-heavy sites where container loads but articles populate later
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = extractedHtml;
+        const hasHeading = tempDiv.querySelector('h1, h2, h3, h4, h5, h6') !== null;
+        const linkCount = tempDiv.querySelectorAll('a').length;
+        const articleCount = tempDiv.querySelectorAll('article, h5, [class*="article"]').length;
+        const contentLength = tempDiv.textContent.trim().length;
+        
+        // Consider it a skeleton if it's EXTREMELY empty (MarketWatch pattern):
+        // - Has heading (structure loaded)
+        // - BUT almost no links (<= 1) AND no article elements (<= 1)
+        // Real components like BBC have 10+ links and 10+ list items
+        // BOTH must be empty - using AND not OR to be very conservative
+        const isEmptyContainer = hasHeading && linkCount <= 1 && articleCount <= 1;
+        
+        console.log(`🔍 Skeleton check for ${component.name}:`, {
+          isSkeletonContent,
+          isEmptyContainer,
+          hasHeading,
+          linkCount,
+          articleCount,
+          contentLength
+        });
+        
+        if (isSkeletonContent || isEmptyContainer) {
           // Try tab-based refresh as fallback
           const tabHtml = await tabBasedRefresh(component.url, component.selector);
           
@@ -1351,7 +1312,7 @@ async function refreshComponent(component) {
           // Tab refresh also failed - keep original
           return {
             success: false,
-            error: 'Page returned skeleton content (JS not loaded)',
+            error: isEmptyContainer ? 'Page returned empty container (JS not loaded yet)' : 'Page returned skeleton content (JS not loaded)',
             keepOriginal: true
           };
         }
@@ -1522,6 +1483,7 @@ async function refreshAll() {
     
     // Auto-reload after success toast displays
     setTimeout(() => {
+      alert('🔍 DEBUG: Check console now! Click OK to reload.');
       location.reload();
     }, 3500);
     
