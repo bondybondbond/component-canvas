@@ -220,6 +220,24 @@ function fixRelativeUrls(container, sourceUrl) {
     const url = new URL(sourceUrl);
     const origin = url.origin; // e.g., "https://www.bbc.co.uk"
     
+    // 🎯 FIX LAZY-LOADED IMAGES: Convert data-image/data-src to src
+    // Epic Games, many modern sites use data-image, data-src, data-lazy-src for lazy loading
+    // These need to be swapped to src before we process URLs, otherwise images are blank placeholders
+    container.querySelectorAll('img').forEach(img => {
+      // Common lazy-load attribute names (in priority order)
+      const lazyAttrs = ['data-image', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy'];
+      
+      for (const attr of lazyAttrs) {
+        const lazyUrl = img.getAttribute(attr);
+        if (lazyUrl && lazyUrl.startsWith('http')) {
+          // Found a real URL in lazy attribute - use it as src
+          img.setAttribute('src', lazyUrl);
+          console.log(`  ✅ Converted ${attr} to src:`, lazyUrl.substring(0, 80));
+          break; // Stop after first match
+        }
+      }
+    });
+    
     // 🎯 FIX IMAGE SRC ATTRIBUTES
     container.querySelectorAll('img[src]').forEach(img => {
       const src = img.getAttribute('src');
@@ -1185,6 +1203,19 @@ async function tryBackgroundWithSpoof(url, selector) {
           }
         });
         
+        // Convert lazy-loaded images BEFORE cloning
+        // Epic Games and many sites use data-image, data-src, etc. for lazy loading
+        element.querySelectorAll('img').forEach(img => {
+          const lazyAttrs = ['data-image', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy'];
+          for (const attr of lazyAttrs) {
+            const lazyUrl = img.getAttribute(attr);
+            if (lazyUrl && lazyUrl.startsWith('http')) {
+              img.setAttribute('src', lazyUrl);
+              break;
+            }
+          }
+        });
+        
         // Clone with markers
         const clone = element.cloneNode(true);
         
@@ -1247,6 +1278,19 @@ async function tryActiveTab(url, selector) {
             if (computed.display === 'none') {
               el.setAttribute('data-spotboard-hidden', 'true');
               marked.push(el);
+            }
+          }
+        });
+        
+        // Convert lazy-loaded images BEFORE cloning
+        // Epic Games and many sites use data-image, data-src, etc. for lazy loading
+        element.querySelectorAll('img').forEach(img => {
+          const lazyAttrs = ['data-image', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy'];
+          for (const attr of lazyAttrs) {
+            const lazyUrl = img.getAttribute(attr);
+            if (lazyUrl && lazyUrl.startsWith('http')) {
+              img.setAttribute('src', lazyUrl);
+              break;
             }
           }
         });
@@ -1590,7 +1634,6 @@ async function refreshAll() {
     
     // Auto-reload after success toast displays
     setTimeout(() => {
-      alert('🔍 DEBUG: Check console now! Click OK to reload.');
       location.reload();
     }, 3500);
     

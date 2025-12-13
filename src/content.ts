@@ -357,6 +357,24 @@ function sanitizeHTML(element: HTMLElement): string {
     });
   });
   
+  // 🎯 FIX LAZY-LOADED IMAGES: Convert data-image/data-src to src
+  // Epic Games, many modern sites use data-image, data-src, data-lazy-src for lazy loading
+  // These need to be swapped to src before we capture, otherwise images are blank placeholders
+  clone.querySelectorAll('img').forEach(img => {
+    // Common lazy-load attribute names (in priority order)
+    const lazyAttrs = ['data-image', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy'];
+    
+    for (const attr of lazyAttrs) {
+      const lazyUrl = img.getAttribute(attr);
+      if (lazyUrl && lazyUrl.startsWith('http')) {
+        // Found a real URL in lazy attribute - use it as src
+        img.setAttribute('src', lazyUrl);
+        console.log(`  ✅ Converted ${attr} to src:`, lazyUrl.substring(0, 80));
+        break; // Stop after first match
+      }
+    }
+  });
+  
   // 🎯 FIX RELATIVE URLS: Convert ALL relative URLs to absolute
   // Prevents resources from being resolved to chrome-extension:// origin
   const pageUrl = window.location.href;
